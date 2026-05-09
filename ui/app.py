@@ -4,7 +4,8 @@ import tkinter as tk
 from spline.hermite import sample_hermite_path
 from ui.waypoint import Waypoint
 from profiler.trajectory import generate_trajectory
-from exporter.binary_exporter import  export_trajectory
+from exporter.binary_exporter import export_trajectory
+
 
 class App:
     def __init__(self, root, fig, ax, canvas, entries):
@@ -43,10 +44,10 @@ class App:
         path = sample_hermite_path(points, tangents, 20)
         xs, ys = zip(*path)
 
-        self.spline_line = self.ax.plot(xs, ys, '-', color='black')[0]
+        self.spline_line = self.ax.plot(xs, ys, '-', color='white')[0]
 
     def draw_waypoint(self, w):
-        dot = self.ax.plot(w.x, w.y, 'o', color='black')[0]
+        dot = self.ax.plot(w.x, w.y, 'o', color='white')[0]
         self.dot_artists.append(dot)
 
     def draw_all(self):
@@ -100,7 +101,6 @@ class App:
         self.is_dragging = False
 
     def on_apply(self):
-        print("apply called", self.selected_waypoint)
         if self.selected_waypoint is None:
             return
 
@@ -115,16 +115,16 @@ class App:
 
     def update_panel(self):
         self.entries['x'].delete(0, tk.END)
-        self.entries['x'].insert(0, self.selected_waypoint.x)
+        self.entries['x'].insert(0, round(self.selected_waypoint.x, 3))
 
         self.entries['y'].delete(0, tk.END)
-        self.entries['y'].insert(0, self.selected_waypoint.y)
+        self.entries['y'].insert(0, round(self.selected_waypoint.y, 3))
 
         self.entries['dx'].delete(0, tk.END)
-        self.entries['dx'].insert(0, self.selected_waypoint.dx)
+        self.entries['dx'].insert(0, round(self.selected_waypoint.dx, 3))
 
         self.entries['dy'].delete(0, tk.END)
-        self.entries['dy'].insert(0, self.selected_waypoint.dy)
+        self.entries['dy'].insert(0, round(self.selected_waypoint.dy, 3))
 
     def on_export(self):
         if len(self.waypoints) < 2:
@@ -139,6 +139,5 @@ class App:
             defaultextension=".bin",
             title="Export location"
         )
-
-        export_trajectory(traj, file_path)
-
+        if file_path:
+            export_trajectory(traj, file_path)
