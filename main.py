@@ -45,9 +45,12 @@ canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 app = App(root, fig, ax, canvas, entries)
 
 tk.Button(right_frame, text="Apply", bg='#111', fg='#aaa', command=app.on_apply).pack()
+tk.Button(right_frame, text="Export", bg='#111', fg='#aaa', command=app.on_export).pack()
+
 
 fig.canvas.mpl_connect('button_press_event', app.on_click)
 fig.canvas.mpl_connect('motion_notify_event', app.on_drag)
 fig.canvas.mpl_connect('button_release_event', app.on_release)
 
+root.protocol("WM_DELETE_WINDOW", root.quit)
 root.mainloop()

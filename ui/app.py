@@ -3,7 +3,8 @@ import tkinter as tk
 
 from spline.hermite import sample_hermite_path
 from ui.waypoint import Waypoint
-
+from profiler.trajectory import generate_trajectory
+from exporter.binary_exporter import  export_trajectory
 
 class App:
     def __init__(self, root, fig, ax, canvas, entries):
@@ -124,3 +125,20 @@ class App:
 
         self.entries['dy'].delete(0, tk.END)
         self.entries['dy'].insert(0, self.selected_waypoint.dy)
+
+    def on_export(self):
+        if len(self.waypoints) < 2:
+            return
+
+        pts = [(w.x, w.y) for w in self.waypoints]
+        tangents = [(w.dx, w.dy) for w in self.waypoints]
+
+        traj = generate_trajectory(pts, tangents, 20, 100, 20)
+
+        file_path = tk.filedialog.asksaveasfilename(
+            defaultextension=".bin",
+            title="Export location"
+        )
+
+        export_trajectory(traj, file_path)
+
