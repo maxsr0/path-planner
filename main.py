@@ -37,25 +37,25 @@ button_style = {
     'font': ('Courier', 10),
     'cursor': 'hand2',
     'borderwidth': 0,
-    'highlightthickness' : 1,
-    'highlightbackground' : '#333'
+    'highlightthickness': 1,
+    'highlightbackground': '#333'
 }
 
 tk.Label(right_frame, text="x position", **label_style).pack(pady=(8, 2))
 x_entry = tk.Entry(right_frame, **entry_style)
-x_entry.pack(padx = 12, fill=tk.X)
+x_entry.pack(padx=12, fill=tk.X)
 
 tk.Label(right_frame, text="y position", **label_style).pack(pady=(8, 2))
 y_entry = tk.Entry(right_frame, **entry_style)
-y_entry.pack(padx = 12, fill=tk.X)
+y_entry.pack(padx=12, fill=tk.X)
 
 tk.Label(right_frame, text="dx position", **label_style).pack(pady=(8, 2))
 dx_entry = tk.Entry(right_frame, **entry_style)
-dx_entry.pack(padx = 12, fill=tk.X)
+dx_entry.pack(padx=12, fill=tk.X)
 
 tk.Label(right_frame, text="dy position", **label_style).pack(pady=(8, 2))
 dy_entry = tk.Entry(right_frame, **entry_style)
-dy_entry.pack(padx = 12, fill=tk.X)
+dy_entry.pack(padx=12, fill=tk.X)
 
 entries = {
     'x': x_entry,
@@ -72,13 +72,12 @@ canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 app = App(root, fig, ax, canvas, entries)
 
 tk.Button(right_frame, text="APPLY", **button_style,
-          command=app.on_apply, pady=8).pack(pady=(16,0), padx=12, fill=tk.X)
+          command=app.on_apply, pady=8).pack(pady=(16, 0), padx=12, fill=tk.X)
 
 tk.Frame(right_frame, bg='#111').pack(fill=tk.BOTH, expand=True)
 
 tk.Button(right_frame, text="EXPORT", **button_style,
-          command=app.on_export, pady=10).pack(pady=(0,16), padx=12, fill=tk.X)
-
+          command=app.on_export, pady=10).pack(pady=(0, 16), padx=12, fill=tk.X)
 
 fig.canvas.mpl_connect('button_press_event', app.on_click)
 fig.canvas.mpl_connect('motion_notify_event', app.on_drag)
