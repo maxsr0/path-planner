@@ -109,7 +109,7 @@ Requires **Python 3.10 or newer** (tested on 3.14). NumPy 1.26+ and PySide6 have
 git clone https://github.com/maxsr0/path-planner
 cd path-planner
 py -3.14 -m venv .venv          # Windows; elsewhere: python3 -m venv .venv
-.venv\Scriptsctivate          # Windows; elsewhere: source .venv/bin/activate
+.venv\Scripts\activate          # Windows; elsewhere: source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
