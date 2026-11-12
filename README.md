@@ -115,6 +115,7 @@ Dependencies: `numpy`, `matplotlib` (plus `pytest` for tests; run with `python -
 - **Right-click** a waypoint, or press **Delete** with one selected, to remove it. **Esc** deselects.
 - **Ctrl+Z** / **Ctrl+Y** (or Ctrl+Shift+Z) undo and redo any edit.
 - **Apply** commits typed values. Changing dx/dy makes the tangent manual; **Auto Tan** returns it to automatic.
+- **New / Open / Save** (Ctrl+N / Ctrl+O / Ctrl+S, Ctrl+Shift+S = Save As) work with editable `.path.json` files. They hold the waypoints and tangents only; robot settings stay in `robot_config.json`, so one path can be exported for different robots. The title bar shows `*` when there are unsaved changes, and you're asked to save before New, Open or closing the window. Exports default to the path's name.
 - **Robot** panel: set max speed, max accel, lateral accel, track width and point spacing, then **Apply Settings**. Values are saved to `robot_config.json` and reloaded on startup. Below it you'll see the path's length, total time and peak speed.
 - **Export .bin** to save a binary trajectory for SD card loading
 - **Export .hpp** to generate a C++ header to embed the path directly in firmware

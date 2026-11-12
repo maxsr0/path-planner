@@ -66,7 +66,7 @@ Context: tank drive; the firmware is PRISM's own template (PID, LQR, Ramsete, po
 - Per-segment speed caps, stop points, and event markers such as "intake on at waypoint 3", exported as markers.
 
 ## Status
-- Done: bugs 1–12, 14–19 and improvements A, B (settings panel and `robot_config.json`) and C (delete, insert, undo/redo, tangent handle, auto-tangent reset, ctrl snap). The firmware `traj_loader.h`/`.cpp` were updated locally in the template and not committed.
+- Done: bugs 1–12, 14–19 and improvements A, B (settings panel and `robot_config.json`) C (delete, insert, undo/redo, tangent handle, auto-tangent reset, ctrl snap) and D (`.path.json` new/open/save, unsaved-changes prompt). A recent-files list was not built. The firmware `traj_loader.h`/`.cpp` were updated locally in the template and not committed.
 - Bug 13 was a false alarm. Catmull-Rom's `0.5·(next − prev)` has the same scale as the endpoint chord.
 - Found in the firmware for later: `TrajectoryFollower::get_reference()` compares `timestamp` (seconds) with `pros::millis()` (ms), and does a linear scan with no interpolation.
 

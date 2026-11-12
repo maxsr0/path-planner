@@ -1,4 +1,5 @@
 import math
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
@@ -8,6 +9,7 @@ from profiler.trajectory import generate_trajectory
 from profiler.config import RobotConfig, load_config, save_config
 from exporter.binary_exporter import export_trajectory
 from exporter.header_exporter import export_trajectory_header
+from exporter.path_file import save_path, load_path, EXTENSION
 
 
 class App:
@@ -21,6 +23,7 @@ class App:
     ]
 
     def __init__(self, root, fig, ax, canvas, entries, settings_entries=None, stats_var=None, config_path=None):
+        self.root = root
         self.ax = ax
         self.canvas = canvas
         self.entries = entries
@@ -43,6 +46,9 @@ class App:
             if error:
                 messagebox.showwarning("Robot settings", error)
         self.fill_settings()
+        self.file_path = None
+        self._saved_data = self._snapshot()[0]
+        self.update_title()
 
     PICK_RADIUS = 5.0      # in: click distance that grabs a waypoint or tangent handle
     INSERT_RADIUS = 8.0    # in: max distance from the path for shift-click insert
@@ -174,6 +180,7 @@ class App:
 
         self.draw_spline(self.waypoints)
         self.update_stats()
+        self.update_title()
 
         self.canvas.draw()
 
@@ -320,6 +327,99 @@ class App:
             if w is not None:
                 self.entries[key].insert(0, round(getattr(w, key), 3))
 
+    # ---------- path files ----------
+
+    def is_dirty(self):
+        """True if the waypoints differ from the last saved/opened state."""
+        return self._snapshot()[0] != self._saved_data
+
+    def _mark_saved(self):
+        self._saved_data = self._snapshot()[0]
+        self.update_title()
+
+    def _path_stem(self):
+        if not self.file_path:
+            return "untitled"
+        name = os.path.basename(self.file_path)
+        for ext in (EXTENSION, ".json"):
+            if name.lower().endswith(ext):
+                return name[:-len(ext)]
+        return name
+
+    def update_title(self):
+        if self.root is None:
+            return
+        star = "*" if self.is_dirty() else ""
+        self.root.title(f"{star}{self._path_stem()} - PRISM Path Planner")
+
+    def confirm_discard(self):
+        """Ask to save unsaved changes. Returns False if the user cancelled."""
+        if not self.is_dirty():
+            return True
+        answer = messagebox.askyesnocancel("Unsaved changes", f"Save changes to {self._path_stem()}?")
+        if answer is None:
+            return False
+        if answer:
+            return self.save()
+        return True
+
+    def _load_state(self, data):
+        self._restore(([(w["x"], w["y"], w["dx"], w["dy"], w["manual_tangent"]) for w in data], None))
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self._mark_saved()
+
+    def new_path(self, *_):
+        if not self.confirm_discard():
+            return
+        self.file_path = None
+        self._load_state([])
+
+    def open_path(self, *_, file_path=None):
+        if not self.confirm_discard():
+            return
+        if file_path is None:
+            file_path = filedialog.askopenfilename(
+                filetypes=[("PRISM path", "*" + EXTENSION), ("JSON", "*.json"), ("All files", "*.*")],
+                title="Open path")
+        if not file_path:
+            return
+        try:
+            data = load_path(file_path)
+        except (OSError, ValueError) as e:
+            messagebox.showerror("Open path", f"Could not open {os.path.basename(file_path)}: {e}")
+            return
+        self.file_path = file_path
+        self._load_state(data)
+
+    def save(self, *_):
+        """Save to the current file (asks for a name the first time). Returns True on success."""
+        if not self.file_path:
+            return self.save_as()
+        try:
+            save_path(self.file_path, self.waypoints)
+        except OSError as e:
+            messagebox.showerror("Save path", f"Could not save {self.file_path}: {e}")
+            return False
+        self._mark_saved()
+        return True
+
+    def save_as(self, *_):
+        file_path = filedialog.asksaveasfilename(
+            filetypes=[("PRISM path", "*" + EXTENSION)],
+            initialfile=self._path_stem() + EXTENSION,
+            title="Save path as")
+        if not file_path:
+            return False
+        if not file_path.lower().endswith(".json"):
+            file_path += EXTENSION
+        self.file_path = file_path
+        return self.save()
+
+    def on_quit(self, *_):
+        if self.confirm_discard() and self.root is not None:
+            self.root.quit()
+
     def _generate_trajectory(self):
         pts = [(w.x, w.y) for w in self.waypoints]
         tangents = [(w.dx, w.dy) for w in self.waypoints]
@@ -332,6 +432,7 @@ class App:
         file_path = filedialog.asksaveasfilename(
             defaultextension=".bin",
             filetypes=[("Binary trajectory", "*.bin")],
+            initialfile=self._path_stem() + ".bin",
             title="Export .bin (SD card)"
         )
         if file_path:
@@ -344,6 +445,7 @@ class App:
         file_path = filedialog.asksaveasfilename(
             defaultextension=".hpp",
             filetypes=[("C++ header", "*.hpp")],
+            initialfile=self._path_stem() + ".hpp",
             title="Export .hpp (embed in firmware)"
         )
         if file_path:

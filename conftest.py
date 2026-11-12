@@ -66,4 +66,7 @@ def make_app(dialogs):
         stats = FakeVar()
         return App(None, fig, ax, FakeCanvas(), entries, settings, stats, config_path), settings, stats
 
-    return factory
+    yield factory
+
+    import matplotlib.pyplot as plt
+    plt.close('all')
