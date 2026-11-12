@@ -108,10 +108,13 @@ Dependencies: `numpy`, `matplotlib` (plus `pytest` for tests; run with `python -
 
 ## Usage
 
-- **Click** anywhere on the field to place a waypoint
-- **Drag** a waypoint to move it and the spline updates live
-- **Select** a waypoint to see and edit its position and tangent in the right panel
-- **Apply** to commit manual tangent overrides
+- **Click** anywhere on the field to place a waypoint. The new waypoint is selected automatically.
+- **Drag** a waypoint to move it, and the spline updates live. Hold **Ctrl** to snap to whole inches.
+- **Select** a waypoint to edit its position and tangent in the right panel. A square **tangent handle** appears: drag it to bend the curve (grey = automatic tangent, teal = manual).
+- **Shift+click** near the path to insert a waypoint into that segment.
+- **Right-click** a waypoint, or press **Delete** with one selected, to remove it. **Esc** deselects.
+- **Ctrl+Z** / **Ctrl+Y** (or Ctrl+Shift+Z) undo and redo any edit.
+- **Apply** commits typed values. Changing dx/dy makes the tangent manual; **Auto Tan** returns it to automatic.
 - **Robot** panel: set max speed, max accel, lateral accel, track width and point spacing, then **Apply Settings**. Values are saved to `robot_config.json` and reloaded on startup. Below it you'll see the path's length, total time and peak speed.
 - **Export .bin** to save a binary trajectory for SD card loading
 - **Export .hpp** to generate a C++ header to embed the path directly in firmware

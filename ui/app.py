@@ -2,7 +2,7 @@ import math
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-from spline.hermite import sample_hermite_path
+from spline.hermite import sample_hermite_path, sample_hermite_2d
 from ui.waypoint import Waypoint
 from profiler.trajectory import generate_trajectory
 from profiler.config import RobotConfig, load_config, save_config
@@ -29,6 +29,11 @@ class App:
         self.spline_line = None
         self.selected_waypoint = None
         self.is_dragging = False
+        self.drag_mode = None          # None | 'point' | 'handle'
+        self._drag_snapshot = None
+        self.handle_artists = []
+        self.undo_stack = []
+        self.redo_stack = []
         self.settings_entries = settings_entries or {}
         self.stats_var = stats_var
         self.config_path = config_path
@@ -39,10 +44,43 @@ class App:
                 messagebox.showwarning("Robot settings", error)
         self.fill_settings()
 
+    PICK_RADIUS = 5.0      # in: click distance that grabs a waypoint or tangent handle
+    INSERT_RADIUS = 8.0    # in: max distance from the path for shift-click insert
+    SNAP = 1.0             # in: grid used while ctrl is held
+    HANDLE_SCALE = 1 / 3   # handle drawn at p + m/3 (the equivalent Bezier control point)
+    MAX_HISTORY = 200
+
+    # ---------- helpers ----------
+
     @staticmethod
-    def check_distance(click_x, click_y, w):
-        r = 5
-        return math.pow(w.x - click_x, 2) + math.pow(w.y - click_y, 2) <= math.pow(r, 2)
+    def check_distance(click_x, click_y, w, r=PICK_RADIUS):
+        return (w.x - click_x) ** 2 + (w.y - click_y) ** 2 <= r ** 2
+
+    @staticmethod
+    def _modifiers(event):
+        """(shift, ctrl) held during a matplotlib mouse event."""
+        parts = set((getattr(event, 'key', None) or '').lower().replace('+', ' ').split())
+        return 'shift' in parts, bool(parts & {'control', 'ctrl'})
+
+    def _point(self, event):
+        """Event position, snapped to the SNAP grid while ctrl is held."""
+        x, y = event.xdata, event.ydata
+        if self._modifiers(event)[1]:
+            x, y = round(x / self.SNAP) * self.SNAP, round(y / self.SNAP) * self.SNAP
+        return x, y
+
+    def _handle_pos(self, w):
+        return w.x + w.dx * self.HANDLE_SCALE, w.y + w.dy * self.HANDLE_SCALE
+
+    def _nearest_segment(self, x, y):
+        """(segment index, distance) of the path segment closest to (x, y)."""
+        best = (None, float('inf'))
+        for i, (a, b) in enumerate(zip(self.waypoints, self.waypoints[1:])):
+            for px, py in sample_hermite_2d((a.x, a.y), (b.x, b.y), (a.dx, a.dy), (b.dx, b.dy), 50):
+                d = math.hypot(px - x, py - y)
+                if d < best[1]:
+                    best = (i, d)
+        return best
 
     def compute_tangents(self):
         for i in range(1, len(self.waypoints) - 1):
@@ -57,6 +95,42 @@ class App:
             if not last.manual_tangent:
                 last.dx = last.x - self.waypoints[-2].x
                 last.dy = last.y - self.waypoints[-2].y
+
+    # ---------- undo / redo ----------
+
+    def _snapshot(self):
+        sel = next((i for i, w in enumerate(self.waypoints) if w is self.selected_waypoint), None)
+        return [(w.x, w.y, w.dx, w.dy, w.manual_tangent) for w in self.waypoints], sel
+
+    def _restore(self, snapshot):
+        data, sel = snapshot
+        self.waypoints = []
+        for x, y, dx, dy, manual in data:
+            w = Waypoint(x, y, dx, dy)
+            w.manual_tangent = manual
+            self.waypoints.append(w)
+        self.selected_waypoint = self.waypoints[sel] if sel is not None else None
+        self._end_drag()
+        self.update_panel()
+        self.draw_all()
+
+    def push_history(self, snapshot=None):
+        """Record the current state (call before every edit)."""
+        self.undo_stack.append(snapshot if snapshot is not None else self._snapshot())
+        del self.undo_stack[:-self.MAX_HISTORY]
+        self.redo_stack.clear()
+
+    def undo(self, *_):
+        if self.undo_stack:
+            self.redo_stack.append(self._snapshot())
+            self._restore(self.undo_stack.pop())
+
+    def redo(self, *_):
+        if self.redo_stack:
+            self.undo_stack.append(self._snapshot())
+            self._restore(self.redo_stack.pop())
+
+    # ---------- drawing ----------
 
     def draw_spline(self, wps):
         if len(wps) < 2:
@@ -77,63 +151,149 @@ class App:
             dot = self.ax.plot(w.x, w.y, 'o', color='white', zorder=3)[0]
         self.dot_artists.append(dot)
 
+    def draw_handle(self, w):
+        hx, hy = self._handle_pos(w)
+        color = '#4fc' if w.manual_tangent else '#888'
+        self.handle_artists.append(self.ax.plot([w.x, hx], [w.y, hy], '-', color=color, lw=1, zorder=4)[0])
+        self.handle_artists.append(self.ax.plot(hx, hy, 's', color=color, markersize=6, zorder=4)[0])
+
     def draw_all(self):
         if self.spline_line is not None:
             self.spline_line.remove()
             self.spline_line = None
 
-        for d in self.dot_artists:
-            d.remove()
+        for artist in self.dot_artists + self.handle_artists:
+            artist.remove()
         self.dot_artists.clear()
+        self.handle_artists.clear()
 
         for w in self.waypoints:
             self.draw_waypoint(w)
+        if self.selected_waypoint is not None:
+            self.draw_handle(self.selected_waypoint)
 
         self.draw_spline(self.waypoints)
         self.update_stats()
 
         self.canvas.draw()
 
+    # ---------- mouse / keys ----------
+
+    def _start_drag(self, mode):
+        self.drag_mode = mode
+        self.is_dragging = True
+        self._drag_snapshot = self._snapshot()  # committed to history on first movement
+
+    def _end_drag(self):
+        self.drag_mode = None
+        self.is_dragging = False
+        self._drag_snapshot = None
+
     def on_click(self, event):
-        if event.button != 1:  # left button only; others reserved (e.g. right-click delete)
-            return
         if event.xdata is None or event.ydata is None:
             return
+        x, y = event.xdata, event.ydata
 
-        for w in self.waypoints:
-            if self.check_distance(event.xdata, event.ydata, w):
-                self.is_dragging = True
-                self.selected_waypoint = w
-                self.update_panel()
-                self.draw_all()
+        if event.button == 3:  # right-click deletes
+            hit = next((w for w in self.waypoints if self.check_distance(x, y, w)), None)
+            if hit is not None:
+                self.delete_waypoint(hit)
+            return
+        if event.button != 1:
+            return
+
+        # Grab whichever is closer: a waypoint or the selected waypoint's tangent handle.
+        candidates = [(math.hypot(w.x - x, w.y - y), 'point', w) for w in self.waypoints]
+        if self.selected_waypoint is not None:
+            hx, hy = self._handle_pos(self.selected_waypoint)
+            candidates.append((math.hypot(hx - x, hy - y), 'handle', self.selected_waypoint))
+        candidates = [c for c in candidates if c[0] <= self.PICK_RADIUS]
+        if candidates:
+            _, mode, w = min(candidates, key=lambda c: c[0])
+            self.selected_waypoint = w
+            self._start_drag(mode)
+            self.update_panel()
+            self.draw_all()
+            return
+
+        shift, _ = self._modifiers(event)
+        if shift and len(self.waypoints) >= 2:
+            seg, dist = self._nearest_segment(x, y)
+            if dist > self.INSERT_RADIUS:
                 return
+            index = seg + 1
+        else:
+            index = len(self.waypoints)
 
-        w = Waypoint(event.xdata, event.ydata)
-        self.waypoints.append(w)
-
+        self.push_history()
+        w = Waypoint(*self._point(event))
+        self.waypoints.insert(index, w)
+        self.selected_waypoint = w
         self.compute_tangents()
-
+        self.update_panel()
         self.draw_all()
 
     def on_drag(self, event):
-        if not self.is_dragging or self.selected_waypoint is None:
+        w = self.selected_waypoint
+        if self.drag_mode is None or w is None:
             return
         if event.xdata is None or event.ydata is None:
             return
 
-        self.selected_waypoint.x = event.xdata
-        self.selected_waypoint.y = event.ydata
+        if self._drag_snapshot is not None:
+            self.push_history(self._drag_snapshot)
+            self._drag_snapshot = None
+
+        if self.drag_mode == 'point':
+            w.x, w.y = self._point(event)
+        else:  # tangent handle
+            w.dx = (event.xdata - w.x) / self.HANDLE_SCALE
+            w.dy = (event.ydata - w.y) / self.HANDLE_SCALE
+            w.manual_tangent = True
 
         self.compute_tangents()
-
         self.update_panel()
         self.draw_all()
 
     def on_release(self, event):
-        self.is_dragging = False
+        self._end_drag()
+
+    def on_key(self, event):
+        """matplotlib key_press_event on the field canvas."""
+        if event.key in ('delete', 'backspace'):
+            self.delete_waypoint()
+        elif event.key == 'escape':
+            self.selected_waypoint = None
+            self.update_panel()
+            self.draw_all()
+
+    # ---------- edits ----------
+
+    def delete_waypoint(self, w=None):
+        w = w if w is not None else self.selected_waypoint
+        if w is None or not any(w is o for o in self.waypoints):
+            return
+        self.push_history()
+        self.waypoints.remove(w)
+        if self.selected_waypoint is w:
+            self.selected_waypoint = None
+        self.compute_tangents()
+        self.update_panel()
+        self.draw_all()
+
+    def reset_tangent(self):
+        w = self.selected_waypoint
+        if w is None or not w.manual_tangent:
+            return
+        self.push_history()
+        w.manual_tangent = False
+        self.compute_tangents()
+        self.update_panel()
+        self.draw_all()
 
     def on_apply(self):
-        if self.selected_waypoint is None:
+        w = self.selected_waypoint
+        if w is None:
             return
 
         try:
@@ -142,27 +302,23 @@ class App:
             messagebox.showerror("Invalid input", "x, y, dx and dy must all be numbers.")
             return
 
-        self.selected_waypoint.x = values['x']
-        self.selected_waypoint.y = values['y']
-        self.selected_waypoint.dx = values['dx']
-        self.selected_waypoint.dy = values['dy']
-        self.selected_waypoint.manual_tangent = True
+        self.push_history()
+        # Only freeze the tangent if it was actually edited (the panel shows values rounded to 3 places).
+        if values['dx'] != round(w.dx, 3) or values['dy'] != round(w.dy, 3):
+            w.dx, w.dy = values['dx'], values['dy']
+            w.manual_tangent = True
+        w.x, w.y = values['x'], values['y']
 
         self.compute_tangents()
+        self.update_panel()
         self.draw_all()
 
     def update_panel(self):
-        self.entries['x'].delete(0, tk.END)
-        self.entries['x'].insert(0, round(self.selected_waypoint.x, 3))
-
-        self.entries['y'].delete(0, tk.END)
-        self.entries['y'].insert(0, round(self.selected_waypoint.y, 3))
-
-        self.entries['dx'].delete(0, tk.END)
-        self.entries['dx'].insert(0, round(self.selected_waypoint.dx, 3))
-
-        self.entries['dy'].delete(0, tk.END)
-        self.entries['dy'].insert(0, round(self.selected_waypoint.dy, 3))
+        w = self.selected_waypoint
+        for key in ('x', 'y', 'dx', 'dy'):
+            self.entries[key].delete(0, tk.END)
+            if w is not None:
+                self.entries[key].insert(0, round(getattr(w, key), 3))
 
     def _generate_trajectory(self):
         pts = [(w.x, w.y) for w in self.waypoints]

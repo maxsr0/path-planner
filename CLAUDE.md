@@ -15,6 +15,8 @@ python -m pytest                  # run all tests (root conftest.py makes packag
 python -m pytest tests/test_profiler.py::test_name   # single test
 ```
 
+UI tests run headless: root `conftest.py` forces the Agg backend and provides the `make_app` fixture, which builds an `App` with fake entries and canvas, plus `Click`/`Key` fake events.
+
 No linter or build step is configured.
 
 ## Architecture
@@ -29,7 +31,8 @@ The pipeline is pure functions over plain lists/tuples, orchestrated by `profile
 
 UI layer:
 - `main.py` builds the tkinter window, side-panel entries (x, y, dx, dy), and buttons, then wires matplotlib canvas events to `ui/app.py::App`.
-- `App` owns the `Waypoint` list (`ui/waypoint.py`), handles click/drag/select, recomputes tangents, redraws, and calls the pipeline. Profile settings come from `App.config`, edited in the ROBOT panel (`App.SETTINGS_FIELDS`) and persisted to `robot_config.json` next to `main.py` via `load_config`/`save_config`. A missing file means defaults; a bad file falls back to defaults with a warning. The panel also shows path length, time and peak speed (`update_stats`, recomputed on every redraw).
+- `App` owns the `Waypoint` list (`ui/waypoint.py`), handles click/drag/select, recomputes tangents, redraws, and calls the pipeline. Editing: right-click/Delete removes, shift+click inserts into the nearest segment (`_nearest_segment`), ctrl snaps (`_point`), and the selected waypoint's handle at `p + m/3` (`HANDLE_SCALE`) is drag-editable. Modifier keys are read from the mpl event's `key` string (`_modifiers`).
+- Undo/redo: every edit calls `push_history()` *before* mutating, which stores a `_snapshot()` (waypoint tuples + selected index). A drag records one snapshot on its first movement, so a plain click adds no history. New edit paths must call `push_history()` too. Profile settings come from `App.config`, edited in the ROBOT panel (`App.SETTINGS_FIELDS`) and persisted to `robot_config.json` next to `main.py` via `load_config`/`save_config`. A missing file means defaults; a bad file falls back to defaults with a warning. The panel also shows path length, time and peak speed (`update_stats`, recomputed on every redraw).
 - Tangents: interior waypoints use Catmull-Rom (`0.5 * (next - prev)`) unless `manual_tangent` is set via the APPLY button; endpoint tangents point toward their neighbor unless manual.
 
 ## Export format contracts
