@@ -1,10 +1,12 @@
 import math
 import tkinter as tk
+from tkinter import filedialog, messagebox
 
 from spline.hermite import sample_hermite_path
 from ui.waypoint import Waypoint
 from profiler.trajectory import generate_trajectory
 from exporter.binary_exporter import export_trajectory
+from exporter.header_exporter import export_trajectory_header
 
 
 class App:
@@ -29,10 +31,13 @@ class App:
                 self.waypoints[i].auto_tangent(self.waypoints[i - 1], self.waypoints[i + 1])
 
         if len(self.waypoints) >= 2:
-            self.waypoints[0].dx = self.waypoints[1].x - self.waypoints[0].x
-            self.waypoints[0].dy = self.waypoints[1].y - self.waypoints[0].y
-            self.waypoints[-1].dx = self.waypoints[-1].x - self.waypoints[-2].x
-            self.waypoints[-1].dy = self.waypoints[-1].y - self.waypoints[-2].y
+            first, last = self.waypoints[0], self.waypoints[-1]
+            if not first.manual_tangent:
+                first.dx = self.waypoints[1].x - first.x
+                first.dy = self.waypoints[1].y - first.y
+            if not last.manual_tangent:
+                last.dx = last.x - self.waypoints[-2].x
+                last.dy = last.y - self.waypoints[-2].y
 
     def draw_spline(self, wps):
         if len(wps) < 2:
@@ -47,12 +52,16 @@ class App:
         self.spline_line = self.ax.plot(xs, ys, '-', color='white')[0]
 
     def draw_waypoint(self, w):
-        dot = self.ax.plot(w.x, w.y, 'o', color='white')[0]
+        if w is self.selected_waypoint:
+            dot = self.ax.plot(w.x, w.y, 'o', color='#4fc', markersize=9, zorder=3)[0]
+        else:
+            dot = self.ax.plot(w.x, w.y, 'o', color='white', zorder=3)[0]
         self.dot_artists.append(dot)
 
     def draw_all(self):
         if self.spline_line is not None:
             self.spline_line.remove()
+            self.spline_line = None
 
         for d in self.dot_artists:
             d.remove()
@@ -66,6 +75,8 @@ class App:
         self.canvas.draw()
 
     def on_click(self, event):
+        if event.button != 1:  # left button only; others reserved (e.g. right-click delete)
+            return
         if event.xdata is None or event.ydata is None:
             return
 
@@ -74,6 +85,7 @@ class App:
                 self.is_dragging = True
                 self.selected_waypoint = w
                 self.update_panel()
+                self.draw_all()
                 return
 
         w = Waypoint(event.xdata, event.ydata)
@@ -104,10 +116,16 @@ class App:
         if self.selected_waypoint is None:
             return
 
-        self.selected_waypoint.x = float(self.entries['x'].get())
-        self.selected_waypoint.y = float(self.entries['y'].get())
-        self.selected_waypoint.dx = float(self.entries['dx'].get())
-        self.selected_waypoint.dy = float(self.entries['dy'].get())
+        try:
+            values = {k: float(self.entries[k].get()) for k in ('x', 'y', 'dx', 'dy')}
+        except ValueError:
+            messagebox.showerror("Invalid input", "x, y, dx and dy must all be numbers.")
+            return
+
+        self.selected_waypoint.x = values['x']
+        self.selected_waypoint.y = values['y']
+        self.selected_waypoint.dx = values['dx']
+        self.selected_waypoint.dy = values['dy']
         self.selected_waypoint.manual_tangent = True
 
         self.compute_tangents()
@@ -126,18 +144,31 @@ class App:
         self.entries['dy'].delete(0, tk.END)
         self.entries['dy'].insert(0, round(self.selected_waypoint.dy, 3))
 
+    def _generate_trajectory(self):
+        pts = [(w.x, w.y) for w in self.waypoints]
+        tangents = [(w.dx, w.dy) for w in self.waypoints]
+        return generate_trajectory(pts, tangents, 20, 100, 20)
+
     def on_export(self):
         if len(self.waypoints) < 2:
             return
-
-        pts = [(w.x, w.y) for w in self.waypoints]
-        tangents = [(w.dx, w.dy) for w in self.waypoints]
-
-        traj = generate_trajectory(pts, tangents, 20, 100, 20)
-
-        file_path = tk.filedialog.asksaveasfilename(
+        traj = self._generate_trajectory()
+        file_path = filedialog.asksaveasfilename(
             defaultextension=".bin",
-            title="Export location"
+            filetypes=[("Binary trajectory", "*.bin")],
+            title="Export .bin (SD card)"
         )
         if file_path:
             export_trajectory(traj, file_path)
+
+    def on_export_header(self):
+        if len(self.waypoints) < 2:
+            return
+        traj = self._generate_trajectory()
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".hpp",
+            filetypes=[("C++ header", "*.hpp")],
+            title="Export .hpp (embed in firmware)"
+        )
+        if file_path:
+            export_trajectory_header(traj, file_path)

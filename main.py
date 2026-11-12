@@ -76,8 +76,11 @@ tk.Button(right_frame, text="APPLY", **button_style,
 
 tk.Frame(right_frame, bg='#111').pack(fill=tk.BOTH, expand=True)
 
-tk.Button(right_frame, text="EXPORT", **button_style,
-          command=app.on_export, pady=10).pack(pady=(0, 16), padx=12, fill=tk.X)
+tk.Button(right_frame, text="EXPORT .bin", **button_style,
+          command=app.on_export, pady=10).pack(pady=(0, 4), padx=12, fill=tk.X)
+
+tk.Button(right_frame, text="EXPORT .hpp", **button_style,
+          command=app.on_export_header, pady=10).pack(pady=(0, 16), padx=12, fill=tk.X)
 
 fig.canvas.mpl_connect('button_press_event', app.on_click)
 fig.canvas.mpl_connect('motion_notify_event', app.on_drag)

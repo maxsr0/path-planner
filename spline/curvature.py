@@ -18,7 +18,8 @@ def curvature_at_point(a, b, c):
     if denominator == 0:
         return 0
 
-    kappa = (2 * abs(np.cross(ab, ac))) / (AB * BC * AC)
+    cross = ab[0] * ac[1] - ab[1] * ac[0]  # 2-D scalar cross (np.cross on 2-D is removed in NumPy 2)
+    kappa = (2 * abs(cross)) / denominator
 
     return kappa
 
