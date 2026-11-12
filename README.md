@@ -103,7 +103,7 @@ path-planner/
 
 ## Setup
 
-Requires **Python 3.10 or newer** (tested on 3.12 and 3.14). NumPy 1.26+ and PySide6 have no builds for older versions, so on Python 3.8 or 3.9 `pip install` fails with "No matching distribution found".
+Requires **Python 3.10 or newer** (tested on 3.14). NumPy 1.26+ and PySide6 have no builds for older versions, so on Python 3.8 or 3.9 `pip install` fails with "No matching distribution found".
 
 ```bash
 git clone https://github.com/maxsr0/path-planner
