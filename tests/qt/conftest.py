@@ -14,3 +14,4 @@ def editor():
         e.add_waypoint(*p)
     e.select(None)
     return e
+

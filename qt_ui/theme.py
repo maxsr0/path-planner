@@ -5,6 +5,7 @@ re-applying stylesheet(theme) and redrawing with the new tokens.
 """
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Tuple
 
 
@@ -85,10 +86,18 @@ def contrast(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
+SPEED_STEPS = 32  # color resolution: ~6 shades between ramp stops; lets the field merge same-color runs
+
+
 def speed_color(theme, velocity, v_max):
     """Ramp color for |velocity| (reverse speed colors like forward speed), clamped to v_max."""
-    ramp = theme.speed_ramp
     f = 0.0 if v_max <= 0 else min(abs(velocity) / v_max, 1.0)
+    return _ramp_color(theme.speed_ramp, round(f * SPEED_STEPS))
+
+
+@lru_cache(maxsize=4096)
+def _ramp_color(ramp, step):
+    f = step / SPEED_STEPS
     pos = f * (len(ramp) - 1)
     i = min(int(pos), len(ramp) - 2)
     t = pos - i

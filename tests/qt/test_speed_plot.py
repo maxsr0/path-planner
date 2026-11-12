@@ -28,9 +28,9 @@ def test_time_pixel_mapping_roundtrip(plot, editor):
 
 def test_hover_emits_time(plot, qtbot, editor):
     t = editor.trajectory[-1].timestamp / 2
+    QTest.mouseMove(plot, plot.point_for_time(t / 3))  # a move to the cursor's current spot sends nothing
     with qtbot.waitSignal(plot.time_hovered) as sig:
-        QTest.mouseMove(plot, plot.mapFromGlobal(plot.mapToGlobal(
-            plot.rect().topLeft())) + plot.point_for_time(t))
+        QTest.mouseMove(plot, plot.point_for_time(t))
     assert sig.args[0] == pytest.approx(t, abs=editor.trajectory[-1].timestamp / 100)
 
 
@@ -65,6 +65,26 @@ def test_empty_path(qtbot):
     p.repaint()  # must not raise
     assert p.readout == ""
     assert p.time_at_x(200) is None
+
+
+def test_repaint_is_linear_in_path_length(qtbot, monkeypatch):
+    """Regression: the axis range was rescanned for every point drawn (O(n^2), ~5 s for long paths).
+
+    Counted rather than timed so machine load can't make it flaky.
+    """
+    from profiler.config import RobotConfig
+    e = Editor(config=RobotConfig(spacing=0.1))
+    for p in [(5, 5), (140, 20), (10, 70), (140, 130), (5, 140)]:
+        e.add_waypoint(*p)
+    assert len(e.trajectory) > 3000
+    p = SpeedPlot(e, THEMES["dark"])
+    qtbot.addWidget(p)
+    p.resize(1400, 160)
+    calls = []
+    original = SpeedPlot.v_range
+    monkeypatch.setattr(SpeedPlot, "v_range", lambda self: (calls.append(1), original(self))[1])
+    p.grab()  # grab() forces a real paint even before the window is exposed
+    assert 1 <= len(calls) <= 3
 
 
 def test_theme_switch(plot):

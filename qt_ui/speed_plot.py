@@ -52,9 +52,10 @@ class SpeedPlot(QWidget):
         f = (x - r.left()) / r.width()
         return min(max(f, 0.0), 1.0) * self.duration()
 
-    def y_for_v(self, v):
+    def y_for_v(self, v, v_range=None):
+        """Pixel y for a velocity. Pass v_range when mapping many points (it scans the trajectory)."""
         r = self._plot_rect()
-        lo, hi = self.v_range()
+        lo, hi = v_range or self.v_range()
         return r.bottom() - r.height() * (v - lo) / ((hi - lo) or 1.0)
 
     def point_for_time(self, t):
@@ -100,11 +101,12 @@ class SpeedPlot(QWidget):
         font.setPointSizeF(8)
         p.setFont(font)
 
-        lo, hi = self.v_range()
+        rng = self.v_range()
+        lo, hi = rng
         step = 25 if hi <= 130 else 50
         v = step * int(lo // step)
         while v <= hi:
-            y = self.y_for_v(v)
+            y = self.y_for_v(v, rng)
             if r.top() - 1 <= y <= r.bottom() + 1:
                 p.setPen(QPen(QColor(t.border if v else t.muted), 1))
                 p.drawLine(QLineF(r.left(), y, r.right(), y))
@@ -129,8 +131,8 @@ class SpeedPlot(QWidget):
                 pen = QPen(QColor(speed_color(t, (a.velocity + b.velocity) / 2, v_max)), 2.2)
                 pen.setCapStyle(Qt.RoundCap)
                 p.setPen(pen)
-                p.drawLine(QPointF(self.x_for_time(a.timestamp), self.y_for_v(a.velocity)),
-                           QPointF(self.x_for_time(b.timestamp), self.y_for_v(b.velocity)))
+                p.drawLine(QPointF(self.x_for_time(a.timestamp), self.y_for_v(a.velocity, rng)),
+                           QPointF(self.x_for_time(b.timestamp), self.y_for_v(b.velocity, rng)))
         else:
             p.setPen(QColor(t.muted))
             p.drawText(r, Qt.AlignCenter, "Place two or more waypoints to see the speed profile")

@@ -149,14 +149,19 @@ def test_waypoints_are_numbered(view, editor):
 
 
 def test_path_colored_by_speed(view, editor):
-    segs = view.path_items
-    assert len(segs) == len(editor.trajectory) - 1
-    theme = THEMES["dark"]
-    fastest = max(range(len(segs)), key=lambda i: abs(editor.trajectory[i].velocity))
-    expected = QColor(speed_color(theme, (editor.trajectory[fastest].velocity
-                                          + editor.trajectory[fastest + 1].velocity) / 2,
-                                  editor.config.v_max))
-    assert segs[fastest].pen().color().name() == expected.name()
+    traj, theme = editor.trajectory, THEMES["dark"]
+    colors = {item.pen().color().name() for item in view.path_items}
+    for i in (0, len(traj) // 2, len(traj) - 2):
+        mid = (traj[i].velocity + traj[i + 1].velocity) / 2
+        assert QColor(speed_color(theme, mid, editor.config.v_max)).name() in colors
+
+
+def test_path_merges_same_color_runs(view, editor):
+    """Consecutive segments with the same color share one item, so dragging rebuilds few items."""
+    n_segments = len(editor.trajectory) - 1
+    assert len(view.path_items) < n_segments / 3
+    covered = sum(item.path().elementCount() - 1 for item in view.path_items)
+    assert covered == n_segments  # every segment is drawn exactly once
 
 
 def test_reversed_segment_is_dashed(view, editor):

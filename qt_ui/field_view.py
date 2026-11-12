@@ -70,6 +70,7 @@ class FieldView(QGraphicsView):
         self._robot_t = None
 
         self.setScene(QGraphicsScene(self))
+        self.scene().setItemIndexMethod(QGraphicsScene.NoIndex)  # items change on every drag
         self.scene().setSceneRect(-400, -400, FIELD_IN + 800, FIELD_IN + 800)
         self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -226,13 +227,15 @@ class FieldView(QGraphicsView):
 
         v_max = ed.config.v_max
         run = None
+        color_run, color = None, None
         for a, b in zip(traj, traj[1:]):
             mid_v = (a.velocity + b.velocity) / 2
-            line = QGraphicsLineItem(a.x, FIELD_IN - a.y, b.x, FIELD_IN - b.y)
-            line.setPen(_pen(speed_color(t, mid_v, v_max), 4))
-            line.setZValue(3)
-            self.scene().addItem(line)
-            self.path_items.append(line)
+            c = speed_color(t, mid_v, v_max)
+            if c != color:  # consecutive same-color segments share one item
+                if color_run is not None:
+                    self._add_path_run(color_run, color)
+                color_run, color = QPainterPath(self.to_scene(a.x, a.y)), c
+            color_run.lineTo(self.to_scene(b.x, b.y))
             if mid_v < 0:  # reversed: collect runs for the dashed overlay
                 if run is None:
                     run = QPainterPath(self.to_scene(a.x, a.y))
@@ -240,6 +243,8 @@ class FieldView(QGraphicsView):
             elif run is not None:
                 self._add_reverse(run)
                 run = None
+        if color_run is not None:
+            self._add_path_run(color_run, color)
         if run is not None:
             self._add_reverse(run)
 
@@ -277,6 +282,13 @@ class FieldView(QGraphicsView):
         self.robot_item.setPen(_pen(t.robot, 2))
         self.robot_heading.setPen(_pen(t.robot, 2))
         self.set_robot_time(self._robot_t)
+
+    def _add_path_run(self, path, color):
+        item = QGraphicsPathItem(path)
+        item.setPen(_pen(color, 4))
+        item.setZValue(3)
+        self.scene().addItem(item)
+        self.path_items.append(item)
 
     def _add_reverse(self, run):
         item = QGraphicsPathItem(run)
