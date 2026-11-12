@@ -63,7 +63,7 @@ for row_keys, row_labels in ((('x', 'y'), ("x", "y")), (('dx', 'dy'), ("tangent 
         e.grid(row=1, column=col, sticky='ew', padx=(0, 2) if col == 0 else (2, 0))
         entries[key] = e
 
-fig, ax = create_field_figure()
+fig, ax, profile_ax = create_field_figure()
 
 canvas = FigureCanvasTkAgg(fig, master=left_frame)
 canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -71,8 +71,12 @@ canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 tk.Label(left_frame,
          text="click: add/select   drag: move   drag ■: tangent   shift+click path: insert\n"
               "right-click/Del: delete   Esc: deselect   hold ctrl: snap   ctrl+z / ctrl+y: undo / redo\n"
-              "ctrl+n: new   ctrl+o: open   ctrl+s: save   ctrl+shift+s: save as",
+              "ctrl+n: new   ctrl+o: open   ctrl+s: save   ctrl+shift+s: save as\n"
+              "space / PLAY: play back path   hover speed plot: scrub",
          bg='#111', fg='#666', font=('Courier', 8)).pack(side=tk.BOTTOM, pady=(0, 6))
+
+play_button = tk.Button(left_frame, text="▶ PLAY", **button_style, pady=4, width=12)
+play_button.pack(side=tk.BOTTOM, pady=(0, 4))
 
 edit_row = tk.Frame(right_frame, bg='#111')
 edit_row.pack(pady=(16, 0), padx=12, fill=tk.X)
@@ -98,7 +102,8 @@ tk.Label(right_frame, textvariable=stats_var, justify=tk.LEFT, anchor='w',
          **label_style).pack(pady=(16, 0), padx=12, fill=tk.X)
 
 config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "robot_config.json")
-app = App(root, fig, ax, canvas, entries, settings_entries, stats_var, config_path)
+app = App(root, fig, ax, canvas, entries, settings_entries, stats_var, config_path,
+          profile_ax=profile_ax)
 app.update_stats()
 apply_button.configure(command=app.on_apply)
 reset_button.configure(command=app.reset_tangent)
@@ -106,6 +111,8 @@ file_buttons["NEW"].configure(command=app.new_path)
 file_buttons["OPEN"].configure(command=app.open_path)
 file_buttons["SAVE"].configure(command=app.save)
 settings_button.configure(command=app.on_apply_settings)
+play_button.configure(command=app.toggle_play)
+app.on_play_state = lambda playing: play_button.configure(text="■ STOP" if playing else "▶ PLAY")
 
 tk.Frame(right_frame, bg='#111').pack(fill=tk.BOTH, expand=True)
 

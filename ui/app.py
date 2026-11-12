@@ -1,5 +1,6 @@
 import math
 import os
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
@@ -10,6 +11,7 @@ from profiler.config import RobotConfig, load_config, save_config
 from exporter.binary_exporter import export_trajectory
 from exporter.header_exporter import export_trajectory_header
 from exporter.path_file import save_path, load_path, EXTENSION
+from ui.velocity_view import VelocityView
 
 
 class App:
@@ -22,8 +24,17 @@ class App:
         ('spacing', 'point spacing (in)'),
     ]
 
-    def __init__(self, root, fig, ax, canvas, entries, settings_entries=None, stats_var=None, config_path=None):
+    PLAY_FRAME_MS = 30
+
+    def __init__(self, root, fig, ax, canvas, entries, settings_entries=None, stats_var=None, config_path=None,
+                 profile_ax=None):
         self.root = root
+        self.profile_ax = profile_ax
+        self.view = VelocityView(ax, profile_ax) if profile_ax is not None else None
+        self.trajectory = []
+        self.play_start = None    # time.monotonic() when playback started; None = stopped
+        self._play_job = None
+        self.on_play_state = None  # optional callback(playing: bool) for the PLAY button
         self.ax = ax
         self.canvas = canvas
         self.entries = entries
@@ -178,7 +189,13 @@ class App:
         if self.selected_waypoint is not None:
             self.draw_handle(self.selected_waypoint)
 
-        self.draw_spline(self.waypoints)
+        self.trajectory = self._generate_trajectory() if len(self.waypoints) >= 2 else []
+        if self.view is not None:
+            self.view.update(self.trajectory, self.config.v_max, self.config.track_width)
+            if self.play_start is None:
+                self.view.set_time(None)
+        else:
+            self.draw_spline(self.waypoints)
         self.update_stats()
         self.update_title()
 
@@ -198,6 +215,8 @@ class App:
 
     def on_click(self, event):
         if event.xdata is None or event.ydata is None:
+            return
+        if getattr(event, 'inaxes', self.ax) is not self.ax:
             return
         x, y = event.xdata, event.ydata
 
@@ -241,6 +260,12 @@ class App:
         self.draw_all()
 
     def on_drag(self, event):
+        if self.drag_mode is None and self.view is not None and self.play_start is None:
+            inside = self.profile_ax is not None and getattr(event, 'inaxes', None) is self.profile_ax
+            self.view.set_time(event.xdata if inside and event.xdata is not None else None)
+            self.canvas.draw_idle()
+            if inside:
+                return
         w = self.selected_waypoint
         if self.drag_mode is None or w is None:
             return
@@ -269,6 +294,8 @@ class App:
         """matplotlib key_press_event on the field canvas."""
         if event.key in ('delete', 'backspace'):
             self.delete_waypoint()
+        elif event.key == ' ':
+            self.toggle_play()
         elif event.key == 'escape':
             self.selected_waypoint = None
             self.update_panel()
@@ -493,9 +520,46 @@ class App:
         if len(self.waypoints) < 2:
             self.stats_var.set("place 2+ waypoints")
             return
-        traj = self._generate_trajectory()
+        traj = self.trajectory
         length = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(traj, traj[1:]))
         peak = max(p.velocity for p in traj)
         self.stats_var.set(f"length  {length:.1f} in\n"
                            f"time    {traj[-1].timestamp:.2f} s\n"
                            f"peak v  {peak:.1f} in/s")
+
+    # ---------- playback ----------
+
+    def toggle_play(self, *_):
+        if self.play_start is not None:
+            self.stop_play()
+        elif self.view is not None and len(self.trajectory) >= 2:
+            self.play_start = time.monotonic()
+            self._notify_play(True)
+            self.play_tick()
+
+    def stop_play(self):
+        if self._play_job is not None and self.root is not None:
+            self.root.after_cancel(self._play_job)
+        self._play_job = None
+        self.play_start = None
+        self._notify_play(False)
+        if self.view is not None:
+            self.view.set_time(None)
+            self.canvas.draw_idle()
+
+    def _notify_play(self, playing):
+        if self.on_play_state is not None:
+            self.on_play_state(playing)
+
+    def play_tick(self, now=None):
+        """Advance playback to real time (or `now`); stops after the end of the path."""
+        if self.play_start is None or self.view is None:
+            return
+        t = (now if now is not None else time.monotonic()) - self.play_start
+        if t > self.view.duration:
+            self.stop_play()
+            return
+        self.view.set_time(t)
+        self.canvas.draw_idle()
+        if self.root is not None:
+            self._play_job = self.root.after(self.PLAY_FRAME_MS, self.play_tick)

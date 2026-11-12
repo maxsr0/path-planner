@@ -1,3 +1,4 @@
+import bisect
 import math
 from typing import NamedTuple
 
@@ -15,6 +16,28 @@ class TrajectoryPoint(NamedTuple):
     omega: float      # angular velocity, rad/s (velocity * curvature)
     curvature: float  # signed, 1/in (positive = turning left)
     timestamp: float  # s
+
+
+def state_at(trajectory, t):
+    """Interpolated (x, y, theta, velocity) at time t, clamped to the trajectory's time range."""
+    if not trajectory:
+        raise ValueError("empty trajectory")
+    if t <= trajectory[0].timestamp:
+        p = trajectory[0]
+        return p.x, p.y, p.theta, p.velocity
+    if t >= trajectory[-1].timestamp:
+        p = trajectory[-1]
+        return p.x, p.y, p.theta, p.velocity
+
+    i = bisect.bisect_right([p.timestamp for p in trajectory], t)
+    a, b = trajectory[i - 1], trajectory[i]
+    span = b.timestamp - a.timestamp
+    f = (t - a.timestamp) / span if span > 0 else 0.0
+    dtheta = (b.theta - a.theta + math.pi) % (2 * math.pi) - math.pi  # shortest way round
+    return (a.x + (b.x - a.x) * f,
+            a.y + (b.y - a.y) * f,
+            a.theta + dtheta * f,
+            a.velocity + (b.velocity - a.velocity) * f)
 
 
 def generate_trajectory(waypoints, tangents, config=None):

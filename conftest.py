@@ -30,6 +30,9 @@ class FakeCanvas:
     def draw(self):
         pass
 
+    def draw_idle(self):
+        pass
+
 
 class Click:
     """Stand-in for a matplotlib mouse event. key is e.g. 'shift' or 'control'."""
@@ -60,11 +63,12 @@ def make_app(dialogs):
     from ui.field import create_field_figure
 
     def factory(config_path=None):
-        fig, ax = create_field_figure()
+        fig, ax, profile_ax = create_field_figure()
         entries = {k: FakeEntry() for k in ("x", "y", "dx", "dy")}
         settings = {name: FakeEntry() for name, _ in App.SETTINGS_FIELDS}
         stats = FakeVar()
-        return App(None, fig, ax, FakeCanvas(), entries, settings, stats, config_path), settings, stats
+        app = App(None, fig, ax, FakeCanvas(), entries, settings, stats, config_path, profile_ax=profile_ax)
+        return app, settings, stats
 
     yield factory
 
