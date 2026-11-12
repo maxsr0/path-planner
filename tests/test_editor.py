@@ -61,6 +61,11 @@ def test_hit_test_point_and_handle(ed):
     assert ed.hit_test(40, 130) is None
 
 
+def test_hit_test_custom_radius(ed):
+    assert ed.hit_test(73.5, 70) == ("point", ed.waypoints[1])
+    assert ed.hit_test(73.5, 70, radius=1.0) is None
+
+
 def test_handle_only_for_selected(ed):
     ed.select(None)
     hx, hy = ed.handle_pos(ed.waypoints[1])

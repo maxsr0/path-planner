@@ -85,13 +85,14 @@ class Editor:
             path += seg if i == 0 else seg[1:]
         return path
 
-    def hit_test(self, x, y):
-        """('point' | 'handle', waypoint) under (x, y), or None. Nearest wins."""
+    def hit_test(self, x, y, radius=None):
+        """('point' | 'handle', waypoint) within radius (default PICK_RADIUS) of (x, y), or None."""
+        radius = self.PICK_RADIUS if radius is None else radius
         candidates = [(math.hypot(w.x - x, w.y - y), 'point', w) for w in self.waypoints]
         if self.selected is not None:
             hx, hy = self.handle_pos(self.selected)
             candidates.append((math.hypot(hx - x, hy - y), 'handle', self.selected))
-        candidates = [c for c in candidates if c[0] <= self.PICK_RADIUS]
+        candidates = [c for c in candidates if c[0] <= radius]
         if not candidates:
             return None
         _, mode, w = min(candidates, key=lambda c: c[0])
