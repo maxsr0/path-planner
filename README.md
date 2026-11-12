@@ -72,20 +72,26 @@ The array name is derived from the filename (e.g. `red_auton.hpp` → `RED_AUTON
 
 ```
 path-planner/
-├── main.py                   # entry point, tkinter setup
+├── main.py                   # entry point, tkinter window and panel layout
+├── fields/                   # built-in field images + fields.json (names, real sizes)
 ├── spline/
-│   ├── hermite.py            # cubic Hermite interpolation
-│   └── curvature.py          # Menger curvature on discrete path
+│   ├── hermite.py            # cubic Hermite interpolation and derivatives
+│   ├── arclength.py          # equal arc-length sampling per segment, signed curvature
+│   └── curvature.py          # Menger curvature (tests only)
 ├── profiler/
-│   ├── velocity_profiler.py  # bidirectional velocity pass
-│   └── trajectory.py         # ties spline + profiler together
+│   ├── config.py             # RobotConfig (limits, track width, spacing) + JSON load/save
+│   ├── velocity_profiler.py  # speed ceilings and the forward/backward pass
+│   └── trajectory.py         # TrajectoryPoint, generate_trajectory, state_at
 ├── exporter/
-│   ├── binary_exporter.py    # packs trajectory to .bin
-│   └── header_exporter.py    # generates .hpp for firmware embed
+│   ├── binary_exporter.py    # versioned little-endian .bin
+│   ├── header_exporter.py    # .hpp for firmware embed
+│   └── path_file.py          # editable .path.json projects
 ├── ui/
-│   ├── app.py                # click/drag waypoint interaction
-│   ├── field.py              # matplotlib field rendering
-│   └── waypoint.py           # waypoint data + tangent logic
+│   ├── app.py                # editing, undo/redo, files, settings, playback
+│   ├── velocity_view.py      # speed-colored path, speed strip, robot marker
+│   ├── fields.py             # field picker presets
+│   ├── field.py              # matplotlib figure setup
+│   └── waypoint.py           # waypoint data (heading tangent, reverse, speed cap)
 └── tests/
 ```
 
