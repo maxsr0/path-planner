@@ -95,8 +95,14 @@ view_row = tk.Frame(left_frame, bg='#111')
 view_row.pack(side=tk.BOTTOM, pady=(0, 4))
 play_button = tk.Button(view_row, text="▶ PLAY", **button_style, pady=4, width=12)
 play_button.pack(side=tk.LEFT, padx=(0, 4))
-field_button = tk.Button(view_row, text="FIELD IMAGE", **button_style, pady=4, width=14)
+field_button = tk.Menubutton(view_row, text="FIELD ▾", bg='#1a1a1a', fg='#4fc', activebackground='#222',
+                             activeforeground='#4fc', relief='flat', font=('Courier', 10), pady=4,
+                             highlightthickness=1, highlightbackground='#333', cursor='hand2')
 field_button.pack(side=tk.LEFT)
+field_menu = tk.Menu(field_button, tearoff=False, bg='#1a1a1a', fg='#ddd', activebackground='#2a2a3a',
+                     activeforeground='#4fc', selectcolor='#4fc', font=('Courier', 10))
+field_button.configure(menu=field_menu)
+field_var = tk.StringVar()
 
 edit_row = tk.Frame(right_frame, bg='#111')
 edit_row.pack(pady=(10, 0), padx=12, fill=tk.X)
@@ -134,9 +140,26 @@ file_buttons["SAVE"].configure(command=app.save)
 settings_button.configure(command=app.on_apply_settings)
 play_button.configure(command=app.toggle_play)
 app.on_play_state = lambda playing: play_button.configure(text="■ STOP" if playing else "▶ PLAY")
-field_button.configure(command=app.toggle_field_image)
-app.on_field_image = lambda shown: field_button.configure(text="REMOVE IMAGE" if shown else "FIELD IMAGE")
-app.on_field_image(app.field_image is not None)
+
+
+def rebuild_field_menu(current):
+    """Field picker: radio list of fields, then add/remove for custom images."""
+    field_menu.delete(0, tk.END)
+    field_var.set(current)
+    options = {f.name: f for f in app.field_options()}
+    for name in app.field_names():
+        label = name + ("   (custom)" if name in options and not options[name].builtin else "")
+        field_menu.add_radiobutton(label=label, value=name, variable=field_var,
+                                   command=lambda n=name: app.select_field(n))
+    field_menu.add_separator()
+    field_menu.add_command(label="+ Add image…", command=app.add_custom_field)
+    if current in options and not options[current].builtin:
+        field_menu.add_command(label=f"Remove “{current}”", command=lambda: app.remove_custom_field(current))
+    field_button.configure(text=f"FIELD: {current} ▾")
+
+
+app.on_field_change = rebuild_field_menu
+rebuild_field_menu(app.field_name)
 
 tk.Frame(right_frame, bg='#111').pack(fill=tk.BOTH, expand=True)
 

@@ -176,45 +176,86 @@ def test_reversed_segment_drawn_dashed_and_profile_goes_negative(app):
     assert app.profile_ax.get_ylim()[0] < 0
 
 
-# ---------- field image ----------
+# ---------- field picker ----------
+
+from ui.fields import DEFAULT_FIELD, FIELDS_DIR, NO_FIELD, load_builtin_fields
+
 
 @pytest.fixture
 def image(tmp_path):
     import matplotlib.image as mpimg
-    path = tmp_path / "field.png"
+    path = tmp_path / "practice field.png"
     mpimg.imsave(path, np.random.rand(20, 20, 3))
     return str(path)
 
 
-def test_field_image_shown_and_remembered(make_app, tmp_path, image, monkeypatch):
-    from ui.app import App
+def test_builtin_override_fields_present():
+    names = [f.name for f in load_builtin_fields()]
+    assert names == ["VURC 2027 - Override", "VURC 2027 - Override (Skills)", "V5RC 2027 - Override",
+                     "V5RC 2027 - Override (Skills)", "V5RC Field Perimeter"]
+    f = load_builtin_fields()[0]
+    assert f.size_in == pytest.approx(3690 / 25.4)
+    lo, hi, _, _ = f.extent
+    assert (lo + hi) / 2 == pytest.approx(72) and hi - lo == pytest.approx(145.28, abs=0.01)
+
+
+def test_default_field_is_vurc_override(make_app, tmp_path):
+    app, _, _ = make_app(prefs_path=str(tmp_path / "prefs.json"), fields_dir=FIELDS_DIR)
+    assert app.field_name == DEFAULT_FIELD
+    assert app.field_image is not None
+    assert app.ax.get_xlim()[0] < 0 < 144 < app.ax.get_xlim()[1]  # wall visible around the tiles
+
+
+def test_switching_fields_is_remembered(make_app, tmp_path):
     prefs = tmp_path / "prefs.json"
-    app, _, _ = make_app()
-    app.prefs_path = str(prefs)
+    app, _, _ = make_app(prefs_path=str(prefs), fields_dir=FIELDS_DIR)
+    changes = []
+    app.on_field_change = changes.append
+    assert app.select_field("V5RC 2027 - Override (Skills)")
+    assert changes == ["V5RC 2027 - Override (Skills)"]
+    assert json.loads(prefs.read_text())["field"] == "V5RC 2027 - Override (Skills)"
+
+    again, _, _ = make_app(prefs_path=str(prefs), fields_dir=FIELDS_DIR)
+    assert again.field_name == "V5RC 2027 - Override (Skills)"
+
+    assert app.select_field(NO_FIELD)
+    assert app.field_image is None and app.ax.get_xlim() == (0, 144)
+
+
+def test_unknown_field_is_rejected(make_app, tmp_path):
+    app, _, _ = make_app(prefs_path=str(tmp_path / "p.json"), fields_dir=FIELDS_DIR)
+    assert app.select_field("VEX IQ 1999") is False
+    assert app.field_name == DEFAULT_FIELD
+
+
+def test_add_and_remove_custom_field(make_app, tmp_path, image, monkeypatch):
+    prefs = tmp_path / "prefs.json"
+    app, _, _ = make_app(prefs_path=str(prefs), fields_dir=FIELDS_DIR)
     monkeypatch.setattr(app_module.filedialog, "askopenfilename", lambda **kw: image)
+    assert app.add_custom_field()
+    assert app.field_name == "practice field"
+    assert "practice field" in app.field_names()
+    assert app.field_image[1].get_extent() == [0, 144, 0, 144]  # custom images cover just the tiles
 
-    states = []
-    app.on_field_image = states.append
-    app.toggle_field_image()
-    assert app.field_image is not None and states[-1] is True
-    assert app.field_image[1].get_extent() == [0, 144, 0, 144]
-    assert app.ax.get_xlim() == (0, 144)
-    assert json.loads(prefs.read_text())["field_image"].endswith("field.png")
+    again, _, _ = make_app(prefs_path=str(prefs), fields_dir=FIELDS_DIR)
+    assert again.field_name == "practice field"
 
-    # A new window with the same prefs reloads it.
-    fig, ax = app.ax.figure, app.ax
-    again = App(None, fig, ax, app.canvas, app.entries, prefs_path=str(prefs))
-    assert again.field_image is not None
-
-    app.toggle_field_image()  # remove
-    assert app.field_image is None and states[-1] is False
-    assert json.loads(prefs.read_text())["field_image"] is None
+    app.remove_custom_field("practice field")
+    assert app.field_name == NO_FIELD
+    assert "practice field" not in app.field_names()
 
 
-def test_bad_field_image_shows_error(make_app, tmp_path, dialogs):
+def test_old_single_image_preference_migrates(make_app, tmp_path, image):
+    prefs = tmp_path / "prefs.json"
+    prefs.write_text(json.dumps({"field_image": image}))
+    app, _, _ = make_app(prefs_path=str(prefs), fields_dir=FIELDS_DIR)
+    assert app.field_name == "practice field"
+
+
+def test_bad_custom_image_shows_error(make_app, tmp_path, dialogs):
     bad = tmp_path / "bad.png"
     bad.write_text("not an image")
-    app, _, _ = make_app()
-    assert app.set_field_image(str(bad)) is False
+    app, _, _ = make_app(prefs_path=str(tmp_path / "p.json"))
+    assert app.add_custom_field(str(bad)) is False
     assert app.field_image is None
     assert dialogs and "Could not load" in dialogs[-1][1]

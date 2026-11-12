@@ -14,6 +14,7 @@ from exporter.binary_exporter import export_trajectory
 from exporter.header_exporter import export_trajectory_header
 from exporter.path_file import save_path, load_path, EXTENSION
 from ui.velocity_view import VelocityView
+from ui.fields import FIELDS_DIR, NO_FIELD, DEFAULT_FIELD, load_builtin_fields, custom_field
 
 
 class App:
@@ -27,9 +28,10 @@ class App:
     ]
 
     PLAY_FRAME_MS = 30
+    FIELD_IMAGE_PX = 640   # field images are resized to at most this many pixels per side
 
     def __init__(self, root, fig, ax, canvas, entries, settings_entries=None, stats_var=None, config_path=None,
-                 profile_ax=None, prefs_path=None):
+                 profile_ax=None, prefs_path=None, fields_dir=FIELDS_DIR):
         self.root = root
         self.profile_ax = profile_ax
         self.view = VelocityView(ax, profile_ax) if profile_ax is not None else None
@@ -60,11 +62,11 @@ class App:
                 messagebox.showwarning("Robot settings", error)
         self.fill_settings()
         self.prefs_path = prefs_path
+        self.fields_dir = fields_dir
         self.field_image = None       # (path, AxesImage) when a background image is shown
-        self.on_field_image = None    # optional callback(shown: bool) for the FIELD button
-        image_path = self._load_prefs().get('field_image')
-        if image_path and os.path.exists(image_path):
-            self.set_field_image(image_path, remember=False)
+        self.field_name = NO_FIELD
+        self.on_field_change = None   # optional callback(name) for the field picker
+        self._initial_field()
         self.file_path = None
         self._saved_data = self._snapshot()[0]
         self.update_title()
@@ -615,7 +617,7 @@ class App:
         if self.root is not None:
             self._play_job = self.root.after(self.PLAY_FRAME_MS, self.play_tick)
 
-    # ---------- field image ----------
+    # ---------- field background ----------
 
     def _load_prefs(self):
         if not self.prefs_path:
@@ -638,43 +640,108 @@ class App:
         except OSError:
             pass  # preferences are a convenience; never block editing over them
 
-    def set_field_image(self, image_path, remember=True):
-        """Show an image stretched over the 144 x 144 in field (top of the image = +y). Returns success."""
-        import matplotlib.image as mpimg
+    def _custom_fields(self):
+        prefs = self._load_prefs()
+        out = []
+        for c in prefs.get('custom_fields', []):
+            if isinstance(c, dict) and c.get('name') and c.get('path') and os.path.exists(c['path']):
+                out.append(custom_field(c['name'], c['path']))
+        old = prefs.get('field_image')  # pre-picker preference: a single custom image path
+        if isinstance(old, str) and os.path.exists(old) and not any(f.path == old for f in out):
+            out.append(custom_field(os.path.splitext(os.path.basename(old))[0], old))
+        return out
+
+    def field_options(self):
+        """All selectable fields: built-ins first, then user-added images."""
+        return load_builtin_fields(self.fields_dir) + self._custom_fields()
+
+    def field_names(self):
+        return [NO_FIELD] + [f.name for f in self.field_options()]
+
+    def _initial_field(self):
+        prefs = self._load_prefs()
+        name = prefs.get('field')
+        if name is None and isinstance(prefs.get('field_image'), str):
+            name = os.path.splitext(os.path.basename(prefs['field_image']))[0]
+        if name is None:
+            name = DEFAULT_FIELD
+        if not self.select_field(name, remember=False):
+            self.select_field(NO_FIELD, remember=False)
+
+    def _show_field(self, preset):
+        """Draw the preset's image under the path. Returns success."""
+        import numpy as np
+        from PIL import Image, UnidentifiedImageError
         try:
-            img = mpimg.imread(image_path)
-        except (OSError, ValueError, SyntaxError) as e:
-            messagebox.showerror("Field image", f"Could not load {os.path.basename(image_path)}: {e}")
+            with Image.open(preset.path) as im:
+                im = im.convert('RGBA')
+                # The field is only a few hundred pixels on screen; a smaller image keeps
+                # every redraw (dragging, playback) fast. 2000 px renders cost ~140 ms/frame.
+                im.thumbnail((self.FIELD_IMAGE_PX, self.FIELD_IMAGE_PX), Image.LANCZOS)
+                img = np.asarray(im)
+        except (OSError, ValueError, UnidentifiedImageError) as e:
+            messagebox.showerror("Field image", f"Could not load {os.path.basename(preset.path)}: {e}")
             return False
-        self.clear_field_image(remember=False)
-        artist = self.ax.imshow(img, extent=(0, 144, 0, 144), origin='upper', zorder=1.1, aspect='auto')
-        self.ax.set_xlim(0, 144)
-        self.ax.set_ylim(0, 144)
+        self._clear_field_artist()
+        artist = self.ax.imshow(img, extent=preset.extent, origin='upper', zorder=1.1,
+                                aspect='auto', interpolation='bilinear')
+        lo, hi, _, _ = preset.extent
+        self.ax.set_xlim(min(0, lo), max(144, hi))
+        self.ax.set_ylim(min(0, lo), max(144, hi))
         self.ax.set_aspect('equal')
-        self.field_image = (image_path, artist)
-        if remember:
-            self._save_prefs(field_image=os.path.abspath(image_path))
-        if self.on_field_image is not None:
-            self.on_field_image(True)
+        self.ax.grid(False)  # the render shows the tiles itself
+        self.field_image = (preset.path, artist)
         return True
 
-    def clear_field_image(self, remember=True):
+    def _clear_field_artist(self):
         if self.field_image is not None:
             self.field_image[1].remove()
             self.field_image = None
-        if remember:
-            self._save_prefs(field_image=None)
-        if self.on_field_image is not None:
-            self.on_field_image(False)
+        self.ax.set_xlim(0, 144)
+        self.ax.set_ylim(0, 144)
+        self.ax.grid(True)
 
-    def toggle_field_image(self, *_):
-        """FIELD button: pick an image, or remove the current one."""
-        if self.field_image is not None:
-            self.clear_field_image()
+    def select_field(self, name, remember=True):
+        """Show a field by name (NO_FIELD = plain grid). Returns False if it isn't available."""
+        if name == NO_FIELD:
+            self._clear_field_artist()
         else:
+            preset = next((f for f in self.field_options() if f.name == name), None)
+            if preset is None or not self._show_field(preset):
+                return False
+        self.field_name = name
+        if remember:
+            self._save_prefs(field=name)
+        if self.on_field_change is not None:
+            self.on_field_change(name)
+        self.canvas.draw_idle()
+        return True
+
+    def add_custom_field(self, image_path=None, name=None):
+        """'+ Add image...': pick an image cropped to the 144 x 144 in field and select it."""
+        if image_path is None:
             image_path = filedialog.askopenfilename(
                 filetypes=[("Images", "*.png *.jpg *.jpeg"), ("All files", "*.*")],
-                title="Field image (top-down, cropped to the 144 x 144 in field)")
-            if not image_path or not self.set_field_image(image_path):
-                return
-        self.canvas.draw()
+                title="Field image (top-down, cropped to the 144 x 144 in tiles)")
+        if not image_path:
+            return False
+        image_path = os.path.abspath(image_path)
+        name = name or os.path.splitext(os.path.basename(image_path))[0]
+        if name == NO_FIELD or any(f.name == name and f.builtin for f in self.field_options()):
+            name += " (custom)"
+        preset = custom_field(name, image_path)
+        if not self._show_field(preset):
+            return False
+        customs = [c for c in self._load_prefs().get('custom_fields', [])
+                   if isinstance(c, dict) and c.get('name') != name]
+        self._save_prefs(custom_fields=customs + [{"name": name, "path": image_path}])
+        return self.select_field(name)
+
+    def remove_custom_field(self, name):
+        customs = [c for c in self._load_prefs().get('custom_fields', [])
+                   if isinstance(c, dict) and c.get('name') != name]
+        self._save_prefs(custom_fields=customs)
+        if self.field_name == name:
+            self.select_field(NO_FIELD)
+        elif self.on_field_change is not None:
+            self.on_field_change(self.field_name)

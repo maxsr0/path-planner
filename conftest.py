@@ -65,13 +65,14 @@ def make_app(dialogs):
     from ui.app import App
     from ui.field import create_field_figure
 
-    def factory(config_path=None):
+    def factory(config_path=None, prefs_path=None, fields_dir="<no fields>"):
         fig, ax, profile_ax = create_field_figure()
         entries = {k: FakeEntry() for k in ("x", "y", "dx", "dy", "cap")}
         entries["reverse"] = FakeVar()
         settings = {name: FakeEntry() for name, _ in App.SETTINGS_FIELDS}
         stats = FakeVar()
-        app = App(None, fig, ax, FakeCanvas(), entries, settings, stats, config_path, profile_ax=profile_ax)
+        app = App(None, fig, ax, FakeCanvas(), entries, settings, stats, config_path, profile_ax=profile_ax,
+                  prefs_path=prefs_path, fields_dir=fields_dir)
         return app, settings, stats
 
     yield factory

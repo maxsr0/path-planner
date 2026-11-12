@@ -66,7 +66,7 @@ Context: tank drive; the firmware is PRISM's own template (PID, LQR, Ramsete, po
 - Per-segment speed caps, stop points, and event markers such as "intake on at waypoint 3", exported as markers.
 
 ## Status
-- Done: bugs 1–12, 14–19 and improvements A, B (settings panel and `robot_config.json`) C (delete, insert, undo/redo, tangent handle, auto-tangent reset, ctrl snap) D (`.path.json` new/open/save, unsaved-changes prompt) E (path colored by speed, speed-vs-time strip, hover scrubbing, real-time playback) and F (field image, reversed segments with negative velocity, per-segment speed caps; the robot footprint shows during playback).
+- Done: bugs 1–12, 14–19 and improvements A, B (settings panel and `robot_config.json`) C (delete, insert, undo/redo, tangent handle, auto-tangent reset, ctrl snap) D (`.path.json` new/open/save, unsaved-changes prompt) E (path colored by speed, speed-vs-time strip, hover scrubbing, real-time playback) and F (field picker with built-in Override renders plus custom images, reversed segments with negative velocity, per-segment speed caps; the robot footprint shows during playback).
 - Deferred to the next update: event markers. Probably an integer event ID per trajectory point, which needs a `.bin`/`TrajectoryPoint` format change in both repos.
 - The firmware follower must handle negative velocity for reversed segments. The Ramsete convention needs no format change. A recent-files list was not built. The firmware `traj_loader.h`/`.cpp` were updated locally in the template and not committed.
 - Bug 13 was a false alarm. Catmull-Rom's `0.5·(next − prev)` has the same scale as the endpoint chord.
