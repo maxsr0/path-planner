@@ -20,5 +20,6 @@ def draw_field(ax):
 
 def create_field_figure():
     fig, ax = plt.subplots()
+    fig.patch.set_facecolor('#111')
     draw_field(ax)
     return fig, ax

@@ -5,13 +5,22 @@ from tkinter import filedialog, messagebox
 from spline.hermite import sample_hermite_path
 from ui.waypoint import Waypoint
 from profiler.trajectory import generate_trajectory
-from profiler.config import RobotConfig
+from profiler.config import RobotConfig, load_config, save_config
 from exporter.binary_exporter import export_trajectory
 from exporter.header_exporter import export_trajectory_header
 
 
 class App:
-    def __init__(self, root, fig, ax, canvas, entries):
+    # (config attribute, label) for each robot-settings field, in panel order
+    SETTINGS_FIELDS = [
+        ('v_max', 'max speed (in/s)'),
+        ('a_max', 'max accel (in/s²)'),
+        ('a_lat_max', 'lateral accel (blank = same)'),
+        ('track_width', 'track width (in, 0 = off)'),
+        ('spacing', 'point spacing (in)'),
+    ]
+
+    def __init__(self, root, fig, ax, canvas, entries, settings_entries=None, stats_var=None, config_path=None):
         self.ax = ax
         self.canvas = canvas
         self.entries = entries
@@ -20,7 +29,15 @@ class App:
         self.spline_line = None
         self.selected_waypoint = None
         self.is_dragging = False
+        self.settings_entries = settings_entries or {}
+        self.stats_var = stats_var
+        self.config_path = config_path
         self.config = RobotConfig()
+        if config_path:
+            self.config, error = load_config(config_path)
+            if error:
+                messagebox.showwarning("Robot settings", error)
+        self.fill_settings()
 
     @staticmethod
     def check_distance(click_x, click_y, w):
@@ -73,6 +90,7 @@ class App:
             self.draw_waypoint(w)
 
         self.draw_spline(self.waypoints)
+        self.update_stats()
 
         self.canvas.draw()
 
@@ -174,3 +192,52 @@ class App:
         )
         if file_path:
             export_trajectory_header(traj, file_path)
+
+    def fill_settings(self):
+        for name, entry in self.settings_entries.items():
+            value = getattr(self.config, name)
+            entry.delete(0, tk.END)
+            entry.insert(0, "" if value is None else f"{value:g}")
+
+    def read_settings(self):
+        """Parse the settings entries into a validated RobotConfig (raises ValueError)."""
+        labels = dict(self.SETTINGS_FIELDS)
+        values = {}
+        for name, entry in self.settings_entries.items():
+            text = entry.get().strip()
+            if name == 'a_lat_max' and text == "":
+                values[name] = None
+                continue
+            try:
+                values[name] = float(text)
+            except ValueError:
+                raise ValueError(f"{labels[name]}: '{text}' is not a number")
+        return RobotConfig(**values).validate()
+
+    def on_apply_settings(self):
+        try:
+            self.config = self.read_settings()
+        except ValueError as e:
+            messagebox.showerror("Invalid robot settings", str(e))
+            return
+
+        if self.config_path:
+            try:
+                save_config(self.config, self.config_path)
+            except OSError as e:
+                messagebox.showerror("Robot settings", f"Could not save {self.config_path}: {e}")
+        self.fill_settings()
+        self.draw_all()
+
+    def update_stats(self):
+        if self.stats_var is None:
+            return
+        if len(self.waypoints) < 2:
+            self.stats_var.set("place 2+ waypoints")
+            return
+        traj = self._generate_trajectory()
+        length = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(traj, traj[1:]))
+        peak = max(p.velocity for p in traj)
+        self.stats_var.set(f"length  {length:.1f} in\n"
+                           f"time    {traj[-1].timestamp:.2f} s\n"
+                           f"peak v  {peak:.1f} in/s")

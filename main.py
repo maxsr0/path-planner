@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from ui.field import create_field_figure
@@ -69,10 +70,30 @@ fig, ax = create_field_figure()
 canvas = FigureCanvasTkAgg(fig, master=left_frame)
 canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-app = App(root, fig, ax, canvas, entries)
+apply_button = tk.Button(right_frame, text="APPLY", **button_style, pady=8)
+apply_button.pack(pady=(16, 0), padx=12, fill=tk.X)
 
-tk.Button(right_frame, text="APPLY", **button_style,
-          command=app.on_apply, pady=8).pack(pady=(16, 0), padx=12, fill=tk.X)
+# Robot settings
+tk.Label(right_frame, text="ROBOT", bg='#111', fg='#4fc', font=('Courier', 10, 'bold')).pack(pady=(20, 0))
+settings_entries = {}
+for name, label in App.SETTINGS_FIELDS:
+    tk.Label(right_frame, text=label, **label_style).pack(pady=(6, 2))
+    e = tk.Entry(right_frame, **entry_style)
+    e.pack(padx=12, fill=tk.X)
+    settings_entries[name] = e
+
+settings_button = tk.Button(right_frame, text="APPLY SETTINGS", **button_style, pady=8)
+settings_button.pack(pady=(12, 0), padx=12, fill=tk.X)
+
+stats_var = tk.StringVar()
+tk.Label(right_frame, textvariable=stats_var, justify=tk.LEFT, anchor='w',
+         **label_style).pack(pady=(16, 0), padx=12, fill=tk.X)
+
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "robot_config.json")
+app = App(root, fig, ax, canvas, entries, settings_entries, stats_var, config_path)
+app.update_stats()
+apply_button.configure(command=app.on_apply)
+settings_button.configure(command=app.on_apply_settings)
 
 tk.Frame(right_frame, bg='#111').pack(fill=tk.BOTH, expand=True)
 
@@ -87,5 +108,5 @@ fig.canvas.mpl_connect('motion_notify_event', app.on_drag)
 fig.canvas.mpl_connect('button_release_event', app.on_release)
 
 root.protocol("WM_DELETE_WINDOW", root.quit)
-root.minsize(800, 600)
+root.minsize(800, 720)
 root.mainloop()

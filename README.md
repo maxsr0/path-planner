@@ -112,6 +112,7 @@ Dependencies: `numpy`, `matplotlib` (plus `pytest` for tests; run with `python -
 - **Drag** a waypoint to move it and the spline updates live
 - **Select** a waypoint to see and edit its position and tangent in the right panel
 - **Apply** to commit manual tangent overrides
+- **Robot** panel: set max speed, max accel, lateral accel, track width and point spacing, then **Apply Settings**. Values are saved to `robot_config.json` and reloaded on startup. Below it you'll see the path's length, total time and peak speed.
 - **Export .bin** to save a binary trajectory for SD card loading
 - **Export .hpp** to generate a C++ header to embed the path directly in firmware
 

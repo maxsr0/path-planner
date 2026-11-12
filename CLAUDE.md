@@ -29,7 +29,7 @@ The pipeline is pure functions over plain lists/tuples, orchestrated by `profile
 
 UI layer:
 - `main.py` builds the tkinter window, side-panel entries (x, y, dx, dy), and buttons, then wires matplotlib canvas events to `ui/app.py::App`.
-- `App` owns the `Waypoint` list (`ui/waypoint.py`), handles click/drag/select, recomputes tangents, redraws, and calls the pipeline. Profile settings come from `App.config` (a `RobotConfig`, defaults only; not editable in the UI yet).
+- `App` owns the `Waypoint` list (`ui/waypoint.py`), handles click/drag/select, recomputes tangents, redraws, and calls the pipeline. Profile settings come from `App.config`, edited in the ROBOT panel (`App.SETTINGS_FIELDS`) and persisted to `robot_config.json` next to `main.py` via `load_config`/`save_config`. A missing file means defaults; a bad file falls back to defaults with a warning. The panel also shows path length, time and peak speed (`update_stats`, recomputed on every redraw).
 - Tangents: interior waypoints use Catmull-Rom (`0.5 * (next - prev)`) unless `manual_tangent` is set via the APPLY button; endpoint tangents point toward their neighbor unless manual.
 
 ## Export format contracts
