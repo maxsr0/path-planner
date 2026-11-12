@@ -103,11 +103,13 @@ path-planner/
 
 ## Setup
 
-Python 3.10+ (tested on 3.14 with NumPy 2.x).
+Requires **Python 3.10 or newer** (tested on 3.12 and 3.14). NumPy 1.26+ and PySide6 have no builds for older versions, so on Python 3.8 or 3.9 `pip install` fails with "No matching distribution found".
 
 ```bash
 git clone https://github.com/maxsr0/path-planner
 cd path-planner
+py -3.14 -m venv .venv          # Windows; elsewhere: python3 -m venv .venv
+.venv\Scriptsctivate          # Windows; elsewhere: source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
