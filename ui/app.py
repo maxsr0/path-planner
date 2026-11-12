@@ -1,10 +1,12 @@
 import math
 import os
+import json
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-from spline.hermite import sample_hermite_path, sample_hermite_2d
+from spline.hermite import sample_hermite_2d
+from spline.arclength import segment_args
 from ui.waypoint import Waypoint
 from profiler.trajectory import generate_trajectory
 from profiler.config import RobotConfig, load_config, save_config
@@ -27,7 +29,7 @@ class App:
     PLAY_FRAME_MS = 30
 
     def __init__(self, root, fig, ax, canvas, entries, settings_entries=None, stats_var=None, config_path=None,
-                 profile_ax=None):
+                 profile_ax=None, prefs_path=None):
         self.root = root
         self.profile_ax = profile_ax
         self.view = VelocityView(ax, profile_ax) if profile_ax is not None else None
@@ -57,6 +59,12 @@ class App:
             if error:
                 messagebox.showwarning("Robot settings", error)
         self.fill_settings()
+        self.prefs_path = prefs_path
+        self.field_image = None       # (path, AxesImage) when a background image is shown
+        self.on_field_image = None    # optional callback(shown: bool) for the FIELD button
+        image_path = self._load_prefs().get('field_image')
+        if image_path and os.path.exists(image_path):
+            self.set_field_image(image_path, remember=False)
         self.file_path = None
         self._saved_data = self._snapshot()[0]
         self.update_title()
@@ -92,40 +100,57 @@ class App:
     def _nearest_segment(self, x, y):
         """(segment index, distance) of the path segment closest to (x, y)."""
         best = (None, float('inf'))
-        for i, (a, b) in enumerate(zip(self.waypoints, self.waypoints[1:])):
-            for px, py in sample_hermite_2d((a.x, a.y), (b.x, b.y), (a.dx, a.dy), (b.dx, b.dy), 50):
+        pts, tangents, signs = self._spline_inputs()
+        for i in range(len(self.waypoints) - 1):
+            for px, py in sample_hermite_2d(*segment_args(pts, tangents, i, signs), 50):
                 d = math.hypot(px - x, py - y)
                 if d < best[1]:
                     best = (i, d)
         return best
 
-    def compute_tangents(self):
-        for i in range(1, len(self.waypoints) - 1):
-            if not self.waypoints[i].manual_tangent:
-                self.waypoints[i].auto_tangent(self.waypoints[i - 1], self.waypoints[i + 1])
+    def _signs(self):
+        """+1 / -1 per segment (segment i leaves waypoint i; -1 = driven backwards)."""
+        return [-1 if w.reversed else 1 for w in self.waypoints[:-1]]
 
-        if len(self.waypoints) >= 2:
-            first, last = self.waypoints[0], self.waypoints[-1]
-            if not first.manual_tangent:
-                first.dx = self.waypoints[1].x - first.x
-                first.dy = self.waypoints[1].y - first.y
-            if not last.manual_tangent:
-                last.dx = last.x - self.waypoints[-2].x
-                last.dy = last.y - self.waypoints[-2].y
+    def _spline_inputs(self):
+        pts = [(w.x, w.y) for w in self.waypoints]
+        tangents = [(w.dx, w.dy) for w in self.waypoints]
+        return pts, tangents, self._signs()
+
+    def compute_tangents(self):
+        """Auto headings: Catmull-Rom on the path, flipped to face backwards on reversed segments.
+
+        At a waypoint where the direction changes, the heading averages the incoming and
+        outgoing facing directions, which puts a cusp (a stop-and-reverse) there.
+        """
+        wps = self.waypoints
+        if len(wps) < 2:
+            return
+        signs = self._signs()
+        for i, w in enumerate(wps):
+            if w.manual_tangent:
+                continue
+            if i == 0:
+                s = signs[0]
+                w.dx, w.dy = s * (wps[1].x - w.x), s * (wps[1].y - w.y)
+            elif i == len(wps) - 1:
+                s = signs[-1]
+                w.dx, w.dy = s * (w.x - wps[-2].x), s * (w.y - wps[-2].y)
+            else:
+                s_in, s_out = signs[i - 1], signs[i]
+                prev, nxt = wps[i - 1], wps[i + 1]
+                w.dx = 0.5 * (s_in * (w.x - prev.x) + s_out * (nxt.x - w.x))
+                w.dy = 0.5 * (s_in * (w.y - prev.y) + s_out * (nxt.y - w.y))
 
     # ---------- undo / redo ----------
 
     def _snapshot(self):
         sel = next((i for i, w in enumerate(self.waypoints) if w is self.selected_waypoint), None)
-        return [(w.x, w.y, w.dx, w.dy, w.manual_tangent) for w in self.waypoints], sel
+        return [w.as_tuple() for w in self.waypoints], sel
 
     def _restore(self, snapshot):
         data, sel = snapshot
-        self.waypoints = []
-        for x, y, dx, dy, manual in data:
-            w = Waypoint(x, y, dx, dy)
-            w.manual_tangent = manual
-            self.waypoints.append(w)
+        self.waypoints = [Waypoint.from_tuple(t) for t in data]
         self.selected_waypoint = self.waypoints[sel] if sel is not None else None
         self._end_drag()
         self.update_panel()
@@ -153,10 +178,11 @@ class App:
         if len(wps) < 2:
             return
 
-        points = [(w.x, w.y) for w in wps]
-        tangents = [(w.dx, w.dy) for w in wps]
-
-        path = sample_hermite_path(points, tangents, 20)
+        pts, tangents, signs = self._spline_inputs()
+        path = []
+        for i in range(len(wps) - 1):
+            seg = sample_hermite_2d(*segment_args(pts, tangents, i, signs), 20)
+            path += seg if i == 0 else seg[1:]
         xs, ys = zip(*path)
 
         self.spline_line = self.ax.plot(xs, ys, '-', color='white')[0]
@@ -336,7 +362,23 @@ class App:
             messagebox.showerror("Invalid input", "x, y, dx and dy must all be numbers.")
             return
 
+        cap = None
+        if 'cap' in self.entries:
+            text = self.entries['cap'].get().strip()
+            if text:
+                try:
+                    cap = float(text)
+                except ValueError:
+                    cap = -1
+                if not math.isfinite(cap) or cap <= 0:
+                    messagebox.showerror("Invalid input", "Segment max speed must be a positive number (blank = no cap).")
+                    return
+
         self.push_history()
+        if 'cap' in self.entries:
+            w.v_cap = cap
+        if 'reverse' in self.entries:
+            w.reversed = bool(self.entries['reverse'].get())
         # Only freeze the tangent if it was actually edited (the panel shows values rounded to 3 places).
         if values['dx'] != round(w.dx, 3) or values['dy'] != round(w.dy, 3):
             w.dx, w.dy = values['dx'], values['dy']
@@ -353,6 +395,12 @@ class App:
             self.entries[key].delete(0, tk.END)
             if w is not None:
                 self.entries[key].insert(0, round(getattr(w, key), 3))
+        if 'cap' in self.entries:
+            self.entries['cap'].delete(0, tk.END)
+            if w is not None and w.v_cap is not None:
+                self.entries['cap'].insert(0, f"{w.v_cap:g}")
+        if 'reverse' in self.entries:
+            self.entries['reverse'].set(bool(w is not None and w.reversed))
 
     # ---------- path files ----------
 
@@ -391,7 +439,8 @@ class App:
         return True
 
     def _load_state(self, data):
-        self._restore(([(w["x"], w["y"], w["dx"], w["dy"], w["manual_tangent"]) for w in data], None))
+        self._restore(([(w["x"], w["y"], w["dx"], w["dy"], w["manual_tangent"], w["reversed"], w["v_cap"])
+                        for w in data], None))
         self.undo_stack.clear()
         self.redo_stack.clear()
         self._mark_saved()
@@ -450,7 +499,9 @@ class App:
     def _generate_trajectory(self):
         pts = [(w.x, w.y) for w in self.waypoints]
         tangents = [(w.dx, w.dy) for w in self.waypoints]
-        return generate_trajectory(pts, tangents, self.config)
+        return generate_trajectory(pts, tangents, self.config,
+                                   reversed_segments=[w.reversed for w in self.waypoints],
+                                   speed_caps=[w.v_cap for w in self.waypoints])
 
     def on_export(self):
         if len(self.waypoints) < 2:
@@ -522,7 +573,7 @@ class App:
             return
         traj = self.trajectory
         length = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(traj, traj[1:]))
-        peak = max(p.velocity for p in traj)
+        peak = max(abs(p.velocity) for p in traj)  # reversed segments have negative velocity
         self.stats_var.set(f"length  {length:.1f} in\n"
                            f"time    {traj[-1].timestamp:.2f} s\n"
                            f"peak v  {peak:.1f} in/s")
@@ -563,3 +614,67 @@ class App:
         self.canvas.draw_idle()
         if self.root is not None:
             self._play_job = self.root.after(self.PLAY_FRAME_MS, self.play_tick)
+
+    # ---------- field image ----------
+
+    def _load_prefs(self):
+        if not self.prefs_path:
+            return {}
+        try:
+            with open(self.prefs_path, encoding='utf-8') as f:
+                prefs = json.load(f)
+            return prefs if isinstance(prefs, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_prefs(self, **changes):
+        if not self.prefs_path:
+            return
+        prefs = self._load_prefs()
+        prefs.update(changes)
+        try:
+            with open(self.prefs_path, 'w', encoding='utf-8') as f:
+                json.dump(prefs, f, indent=2)
+        except OSError:
+            pass  # preferences are a convenience; never block editing over them
+
+    def set_field_image(self, image_path, remember=True):
+        """Show an image stretched over the 144 x 144 in field (top of the image = +y). Returns success."""
+        import matplotlib.image as mpimg
+        try:
+            img = mpimg.imread(image_path)
+        except (OSError, ValueError, SyntaxError) as e:
+            messagebox.showerror("Field image", f"Could not load {os.path.basename(image_path)}: {e}")
+            return False
+        self.clear_field_image(remember=False)
+        artist = self.ax.imshow(img, extent=(0, 144, 0, 144), origin='upper', zorder=1.1, aspect='auto')
+        self.ax.set_xlim(0, 144)
+        self.ax.set_ylim(0, 144)
+        self.ax.set_aspect('equal')
+        self.field_image = (image_path, artist)
+        if remember:
+            self._save_prefs(field_image=os.path.abspath(image_path))
+        if self.on_field_image is not None:
+            self.on_field_image(True)
+        return True
+
+    def clear_field_image(self, remember=True):
+        if self.field_image is not None:
+            self.field_image[1].remove()
+            self.field_image = None
+        if remember:
+            self._save_prefs(field_image=None)
+        if self.on_field_image is not None:
+            self.on_field_image(False)
+
+    def toggle_field_image(self, *_):
+        """FIELD button: pick an image, or remove the current one."""
+        if self.field_image is not None:
+            self.clear_field_image()
+        else:
+            image_path = filedialog.askopenfilename(
+                filetypes=[("Images", "*.png *.jpg *.jpeg"), ("All files", "*.*")],
+                title="Field image (top-down, cropped to the 144 x 144 in field)")
+            if not image_path or not self.set_field_image(image_path):
+                return
+        self.canvas.draw()

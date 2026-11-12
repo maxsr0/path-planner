@@ -1,6 +1,6 @@
 """Save/load editable path projects (.path.json).
 
-Only the waypoints are stored. Robot constants live in robot_config.json, so
+Only the waypoints (with their per-segment reverse / speed-cap options) are stored. Robot constants live in robot_config.json, so
 one path can be re-exported for a different robot.
 """
 import json
@@ -17,7 +17,8 @@ def save_path(filepath, waypoints):
         "format": FORMAT,
         "version": VERSION,
         "waypoints": [
-            {"x": w.x, "y": w.y, "dx": w.dx, "dy": w.dy, "manual_tangent": bool(w.manual_tangent)}
+            {"x": w.x, "y": w.y, "dx": w.dx, "dy": w.dy, "manual_tangent": bool(w.manual_tangent),
+             "reversed": bool(getattr(w, "reversed", False)), "v_cap": getattr(w, "v_cap", None)}
             for w in waypoints
         ],
     }
@@ -51,5 +52,15 @@ def load_path(filepath):
         if not all(math.isfinite(v) for v in entry.values()):
             raise ValueError(f"waypoint {i + 1} has a non-finite value")
         entry["manual_tangent"] = bool(w.get("manual_tangent", False))
+        entry["reversed"] = bool(w.get("reversed", False))
+        cap = w.get("v_cap")
+        if cap is not None:
+            try:
+                cap = float(cap)
+            except (TypeError, ValueError):
+                raise ValueError(f"waypoint {i + 1} has an invalid speed cap")
+            if not math.isfinite(cap) or cap <= 0:
+                raise ValueError(f"waypoint {i + 1} speed cap must be a positive number")
+        entry["v_cap"] = cap
         waypoints.append(entry)
     return waypoints

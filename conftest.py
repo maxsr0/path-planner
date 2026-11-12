@@ -25,6 +25,9 @@ class FakeVar:
     def set(self, value):
         self.value = value
 
+    def get(self):
+        return self.value
+
 
 class FakeCanvas:
     def draw(self):
@@ -64,7 +67,8 @@ def make_app(dialogs):
 
     def factory(config_path=None):
         fig, ax, profile_ax = create_field_figure()
-        entries = {k: FakeEntry() for k in ("x", "y", "dx", "dy")}
+        entries = {k: FakeEntry() for k in ("x", "y", "dx", "dy", "cap")}
+        entries["reverse"] = FakeVar()
         settings = {name: FakeEntry() for name, _ in App.SETTINGS_FIELDS}
         stats = FakeVar()
         app = App(None, fig, ax, FakeCanvas(), entries, settings, stats, config_path, profile_ax=profile_ax)

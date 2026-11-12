@@ -66,21 +66,42 @@ class VelocityView:
 
         xs = np.array([p.x for p in trajectory])
         ys = np.array([p.y for p in trajectory])
-        vs = np.array([p.velocity for p in trajectory])
+        vs = np.array([p.velocity for p in trajectory])   # negative while driving backwards
         ts = np.array([p.timestamp for p in trajectory])
         mid_v = (vs[:-1] + vs[1:]) / 2
+        mid_speed = np.abs(mid_v)                         # color encodes speed, not direction
         norm = Normalize(0, v_max)
 
         path = LineCollection(_segments(xs, ys), cmap=SPEED_CMAP, norm=norm,
                               linewidths=2.5, capstyle='round', zorder=2)
-        path.set_array(mid_v)
+        path.set_array(mid_speed)
         self.field_ax.add_collection(path)
+        extra = []
+
+        # Reversed runs: cut surface-colored gaps into the line so it reads as dashed.
+        backwards = mid_v < 0
+        i = 0
+        while i < len(backwards):
+            if backwards[i]:
+                j = i
+                while j < len(backwards) and backwards[j]:
+                    j += 1
+                gaps = self.field_ax.plot(xs[i:j + 1], ys[i:j + 1], color=SURFACE, linewidth=3.5,
+                                          dashes=(2, 3), zorder=2.1)[0]
+                extra.append(gaps)
+                i = j
+            else:
+                i += 1
 
         profile = LineCollection(_segments(ts, vs), cmap=SPEED_CMAP, norm=norm, linewidths=2, capstyle='round')
-        profile.set_array(mid_v)
+        profile.set_array(mid_speed)
         self.ax.add_collection(profile)
         self.ax.set_xlim(0, max(ts[-1], 1e-3))
-        self.ax.set_ylim(0, v_max * 1.05)
+        if backwards.any():
+            self.ax.set_ylim(-v_max * 1.05, v_max * 1.05)
+            extra.append(self.ax.axhline(0, color=MUTED, linewidth=0.8))
+        else:
+            self.ax.set_ylim(0, v_max * 1.05)
 
         self.playhead = self.ax.axvline(0, color=INK, linewidth=1, alpha=0.7, visible=False)
         self.readout = self.ax.text(0.99, 0.92, "", transform=self.ax.transAxes, ha='right', va='top',
@@ -90,7 +111,7 @@ class VelocityView:
         self.field_ax.add_patch(self.robot)
         self.heading = self.field_ax.plot([], [], '-', color=ROBOT, linewidth=1.5, zorder=5, visible=False)[0]
 
-        self._artists = [path, profile, self.playhead, self.readout, self.robot, self.heading]
+        self._artists = [path, profile, self.playhead, self.readout, self.robot, self.heading] + extra
 
     @property
     def duration(self):

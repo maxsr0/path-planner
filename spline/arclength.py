@@ -1,4 +1,5 @@
 import math
+from typing import NamedTuple, Tuple
 
 import numpy as np
 
@@ -7,17 +8,30 @@ from spline.hermite import cubic_hermite_2d, hermite_eval_2d
 EPS = 1e-9
 
 
-def _split(u, num_segments):
-    seg = min(int(u), num_segments - 1)
-    return seg, u - seg
+class Sample(NamedTuple):
+    pos: Tuple[float, float]
+    d1: Tuple[float, float]   # path derivative (direction of travel along the path)
+    d2: Tuple[float, float]
+    seg: int                  # index of the segment this sample belongs to
 
 
-def sample_path_by_distance(waypoints, tangents, spacing, oversample=200):
-    """Sample the spline at equal arc-length spacing.
+def segment_args(waypoints, tangents, i, signs=None):
+    """Hermite (p0, p1, m0, m1) for segment i.
 
-    Returns a list of (position, d1, d2) tuples. Uniform spacing keeps the
-    curvature and velocity profile independent of tangent magnitudes and
-    segment lengths, which uniform-in-t sampling does not.
+    tangents are robot *headings*; a reversed segment (sign -1) is traversed
+    against them, so its path derivatives are the negated headings.
+    """
+    s = signs[i] if signs is not None else 1
+    m0 = (s * tangents[i][0], s * tangents[i][1])
+    m1 = (s * tangents[i + 1][0], s * tangents[i + 1][1])
+    return waypoints[i], waypoints[i + 1], m0, m1
+
+
+def sample_path_by_distance(waypoints, tangents, spacing, oversample=200, signs=None):
+    """Sample each segment at equal arc-length spacing; waypoints are always sample points.
+
+    Returns a list of Sample. A waypoint between segments i and i+1 appears once,
+    as the first sample of segment i+1 (its derivatives come from that segment).
     """
     num_segments = len(waypoints) - 1
     if num_segments < 1:
@@ -25,20 +39,20 @@ def sample_path_by_distance(waypoints, tangents, spacing, oversample=200):
     if spacing <= 0:
         raise ValueError("spacing must be positive")
 
-    def seg_args(u):
-        seg, t = _split(u, num_segments)
-        return waypoints[seg], waypoints[seg + 1], tangents[seg], tangents[seg + 1], t
-
-    # Dense table: global parameter u in [0, num_segments] -> cumulative arc length.
-    us = np.linspace(0, num_segments, num_segments * oversample + 1)
-    pts = np.array([cubic_hermite_2d(*seg_args(u)) for u in us])
-    cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
-    total = cum[-1]
-
-    n = max(1, math.ceil(total / spacing))
-    target_us = np.interp(np.linspace(0, total, n + 1), cum, us)
-
-    return [hermite_eval_2d(*seg_args(u)) for u in target_us]
+    samples = []
+    ts = np.linspace(0, 1, oversample + 1)
+    for i in range(num_segments):
+        args = segment_args(waypoints, tangents, i, signs)
+        pts = np.array([cubic_hermite_2d(*args, t) for t in ts])
+        cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+        n = max(1, math.ceil(cum[-1] / spacing))
+        targets = np.interp(np.linspace(0, cum[-1], n + 1), cum, ts)
+        if i < num_segments - 1:
+            targets = targets[:-1]  # the end point is the next segment's first sample
+        for t in targets:
+            pos, d1, d2 = hermite_eval_2d(*args, t)
+            samples.append(Sample(pos, d1, d2, i))
+    return samples
 
 
 def signed_curvature(d1, d2):

@@ -63,6 +63,22 @@ for row_keys, row_labels in ((('x', 'y'), ("x", "y")), (('dx', 'dy'), ("tangent 
         e.grid(row=1, column=col, sticky='ew', padx=(0, 2) if col == 0 else (2, 0))
         entries[key] = e
 
+# Options for the segment leaving the selected waypoint
+seg_row = tk.Frame(right_frame, bg='#111')
+seg_row.pack(pady=(6, 0), padx=12, fill=tk.X)
+seg_row.columnconfigure(0, weight=1, uniform='seg')
+seg_row.columnconfigure(1, weight=1, uniform='seg')
+tk.Label(seg_row, text="next segment", **label_style).grid(row=0, column=0, pady=(0, 2))
+tk.Label(seg_row, text="max v (in/s)", **label_style).grid(row=0, column=1, pady=(0, 2))
+reverse_var = tk.BooleanVar(value=False)
+tk.Checkbutton(seg_row, text="reverse", variable=reverse_var, bg='#111', fg='#aaa', selectcolor='#222',
+               activebackground='#111', activeforeground='#4fc', font=('Courier', 9),
+               highlightthickness=0).grid(row=1, column=0, sticky='w')
+cap_entry = tk.Entry(seg_row, width=8, **entry_style)
+cap_entry.grid(row=1, column=1, sticky='ew', padx=(2, 0))
+entries['reverse'] = reverse_var
+entries['cap'] = cap_entry
+
 fig, ax, profile_ax = create_field_figure()
 
 canvas = FigureCanvasTkAgg(fig, master=left_frame)
@@ -75,35 +91,40 @@ tk.Label(left_frame,
               "space / PLAY: play back path   hover speed plot: scrub",
          bg='#111', fg='#666', font=('Courier', 8)).pack(side=tk.BOTTOM, pady=(0, 6))
 
-play_button = tk.Button(left_frame, text="▶ PLAY", **button_style, pady=4, width=12)
-play_button.pack(side=tk.BOTTOM, pady=(0, 4))
+view_row = tk.Frame(left_frame, bg='#111')
+view_row.pack(side=tk.BOTTOM, pady=(0, 4))
+play_button = tk.Button(view_row, text="▶ PLAY", **button_style, pady=4, width=12)
+play_button.pack(side=tk.LEFT, padx=(0, 4))
+field_button = tk.Button(view_row, text="FIELD IMAGE", **button_style, pady=4, width=14)
+field_button.pack(side=tk.LEFT)
 
 edit_row = tk.Frame(right_frame, bg='#111')
-edit_row.pack(pady=(16, 0), padx=12, fill=tk.X)
+edit_row.pack(pady=(10, 0), padx=12, fill=tk.X)
 apply_button = tk.Button(edit_row, text="APPLY", **button_style, pady=8)
 apply_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
 reset_button = tk.Button(edit_row, text="AUTO TAN", **button_style, pady=8)
 reset_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0))
 
 # Robot settings
-tk.Label(right_frame, text="ROBOT", bg='#111', fg='#4fc', font=('Courier', 10, 'bold')).pack(pady=(20, 0))
+tk.Label(right_frame, text="ROBOT", bg='#111', fg='#4fc', font=('Courier', 10, 'bold')).pack(pady=(12, 0))
 settings_entries = {}
 for name, label in App.SETTINGS_FIELDS:
-    tk.Label(right_frame, text=label, **label_style).pack(pady=(6, 2))
+    tk.Label(right_frame, text=label, **label_style).pack(pady=(4, 1))
     e = tk.Entry(right_frame, **entry_style)
     e.pack(padx=12, fill=tk.X)
     settings_entries[name] = e
 
 settings_button = tk.Button(right_frame, text="APPLY SETTINGS", **button_style, pady=8)
-settings_button.pack(pady=(12, 0), padx=12, fill=tk.X)
+settings_button.pack(pady=(8, 0), padx=12, fill=tk.X)
 
 stats_var = tk.StringVar()
 tk.Label(right_frame, textvariable=stats_var, justify=tk.LEFT, anchor='w',
-         **label_style).pack(pady=(16, 0), padx=12, fill=tk.X)
+         **label_style).pack(pady=(10, 0), padx=12, fill=tk.X)
 
-config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "robot_config.json")
+here = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(here, "robot_config.json")
 app = App(root, fig, ax, canvas, entries, settings_entries, stats_var, config_path,
-          profile_ax=profile_ax)
+          profile_ax=profile_ax, prefs_path=os.path.join(here, "ui_prefs.json"))
 app.update_stats()
 apply_button.configure(command=app.on_apply)
 reset_button.configure(command=app.reset_tangent)
@@ -113,6 +134,9 @@ file_buttons["SAVE"].configure(command=app.save)
 settings_button.configure(command=app.on_apply_settings)
 play_button.configure(command=app.toggle_play)
 app.on_play_state = lambda playing: play_button.configure(text="■ STOP" if playing else "▶ PLAY")
+field_button.configure(command=app.toggle_field_image)
+app.on_field_image = lambda shown: field_button.configure(text="REMOVE IMAGE" if shown else "FIELD IMAGE")
+app.on_field_image(app.field_image is not None)
 
 tk.Frame(right_frame, bg='#111').pack(fill=tk.BOTH, expand=True)
 

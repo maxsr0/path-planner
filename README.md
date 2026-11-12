@@ -37,10 +37,10 @@ Two export options are available. Each trajectory point is:
 | field | unit |
 |---|---|
 | `x`, `y` | in |
-| `theta` | rad, CCW from +x |
-| `velocity` | in/s |
+| `theta` | rad, CCW from +x; the direction the robot faces (path direction + π when reversed) |
+| `velocity` | in/s, negative when driving backwards |
 | `omega` | rad/s |
-| `curvature` | 1/in, signed |
+| `curvature` | 1/in, signed, in the robot's frame, so `omega = velocity × curvature` always holds |
 | `timestamp` | s |
 
 **`.bin` — compact binary (SD card)**
@@ -116,6 +116,10 @@ Dependencies: `numpy`, `matplotlib` (plus `pytest` for tests; run with `python -
 - **Ctrl+Z** / **Ctrl+Y** (or Ctrl+Shift+Z) undo and redo any edit.
 - **Apply** commits typed values. Changing dx/dy makes the tangent manual; **Auto Tan** returns it to automatic.
 - **New / Open / Save** (Ctrl+N / Ctrl+O / Ctrl+S, Ctrl+Shift+S = Save As) work with editable `.path.json` files. They hold the waypoints and tangents only; robot settings stay in `robot_config.json`, so one path can be exported for different robots. The title bar shows `*` when there are unsaved changes, and you're asked to save before New, Open or closing the window. Exports default to the path's name.
+- **Segment options** (the row under the tangent fields, applied with **Apply**) affect the segment *leaving* the selected waypoint:
+  - **reverse** drives it backwards. It's drawn dashed and shows as negative speed on the speed strip. Where the direction changes, the path makes a cusp and the robot stops there.
+  - **max v** caps the speed on that segment (blank = no cap).
+- **Field image:** **FIELD IMAGE** loads your own top-down image, cropped to the 144×144 in field (top of the image = +y), and draws it under the grid. It's remembered per user in `ui_prefs.json` (gitignored). The same button then reads **REMOVE IMAGE** to take it off.
 - **Speed view:** the path is colored by planned speed, one blue ramp from dark (slow) to light (at `v_max`). The strip under the field plots speed over time in the same colors, so its y-axis is the color key. Hover over the strip to scrub a robot marker (a square sized to the track width) along the path, or press **Space** / **PLAY** to play it back in real time.
 - **Robot** panel: set max speed, max accel, lateral accel, track width and point spacing, then **Apply Settings**. Values are saved to `robot_config.json` and reloaded on startup. Below it you'll see the path's length, total time and peak speed.
 - **Export .bin** to save a binary trajectory for SD card loading

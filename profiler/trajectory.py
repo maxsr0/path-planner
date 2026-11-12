@@ -40,24 +40,47 @@ def state_at(trajectory, t):
             a.velocity + (b.velocity - a.velocity) * f)
 
 
-def generate_trajectory(waypoints, tangents, config=None):
+def generate_trajectory(waypoints, tangents, config=None, reversed_segments=None, speed_caps=None):
+    """Build the time-parameterized trajectory.
+
+    tangents: robot heading vectors at each waypoint.
+    reversed_segments[i]: drive segment i (waypoint i -> i+1) backwards. Reversed points get
+        negative velocity, theta = the direction the robot faces, and robot-frame curvature,
+        so omega = velocity * curvature still holds. The robot stops where direction changes.
+    speed_caps[i]: optional max speed (in/s) for segment i (None = no cap).
+    Both lists may be per-waypoint (extra trailing entries are ignored).
+    """
     config = config or RobotConfig()
-    samples = sample_path_by_distance(waypoints, tangents, config.spacing)
+    num_segments = len(waypoints) - 1
+    signs = [-1 if reversed_segments and reversed_segments[i] else 1 for i in range(num_segments)]
+    caps = [(speed_caps[i] if speed_caps and speed_caps[i] is not None else math.inf)
+            for i in range(num_segments)]
 
-    path = [pos for pos, _, _ in samples]
-    curvatures = [signed_curvature(d1, d2) for _, d1, d2 in samples]
+    samples = sample_path_by_distance(waypoints, tangents, config.spacing, signs=signs)
+    path = [s.pos for s in samples]
+    path_curvatures = [signed_curvature(s.d1, s.d2) for s in samples]
 
-    # Heading from the spline derivative; hold the last heading through cusps.
-    headings = []
-    last = math.atan2(tangents[0][1], tangents[0][0])
-    for _, d1, _ in samples:
-        if math.hypot(*d1) > 1e-9:
-            last = math.atan2(d1[1], d1[0])
-        headings.append(last)
+    # Per-point speed limits: the segment cap, the lower cap at joints, and a full stop at direction changes.
+    limits = []
+    for j, s in enumerate(samples):
+        lim = caps[s.seg]
+        if j > 0 and samples[j - 1].seg != s.seg:
+            lim = min(lim, caps[samples[j - 1].seg])
+            if signs[samples[j - 1].seg] != signs[s.seg]:
+                lim = 0.0
+        limits.append(lim)
 
-    velocities = velocity_profile(path, curvatures, config.v_max, config.a_max,
-                                  config.lateral_accel, config.track_width)
-    timestamps = compute_timestamps(path, velocities, config.a_max)
+    speeds = velocity_profile(path, path_curvatures, config.v_max, config.a_max,
+                              config.lateral_accel, config.track_width, limits)
+    timestamps = compute_timestamps(path, speeds, config.a_max)
 
-    return [TrajectoryPoint(x, y, th, v, v * k, k, t)
-            for (x, y), th, v, k, t in zip(path, headings, velocities, curvatures, timestamps)]
+    # Heading = direction the robot faces (path direction, flipped on reversed segments).
+    points = []
+    last = math.atan2(signs[0] * tangents[0][1], signs[0] * tangents[0][0])
+    for s, k, v, t in zip(samples, path_curvatures, speeds, timestamps):
+        sign = signs[s.seg]
+        if math.hypot(*s.d1) > 1e-9:
+            last = math.atan2(sign * s.d1[1], sign * s.d1[0])
+        velocity, curvature = sign * v, sign * k
+        points.append(TrajectoryPoint(s.pos[0], s.pos[1], last, velocity, velocity * curvature, curvature, t))
+    return points

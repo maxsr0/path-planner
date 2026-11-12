@@ -20,11 +20,14 @@ def velocity_ceiling(curvature, v_max, a_lat_max, track_width=0.0):
     return ceil
 
 
-def velocity_profile(path, curvatures, v_max, a_max, a_lat_max=None, track_width=0.0):
+def velocity_profile(path, curvatures, v_max, a_max, a_lat_max=None, track_width=0.0, limits=None):
+    """Speeds (>= 0) along the path. limits: optional extra per-point max speed (e.g. segment caps, 0 = stop)."""
     if a_lat_max is None:
         a_lat_max = a_max
     n = len(path)
     ceil = [velocity_ceiling(k, v_max, a_lat_max, track_width) for k in curvatures]
+    if limits is not None:
+        ceil = [min(c, lim) for c, lim in zip(ceil, limits)]
 
     speeds = [0.0] * n
     for i in range(1, n):  # forward pass: vf^2 = vi^2 + 2ad

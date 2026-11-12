@@ -16,3 +16,5 @@ __pycache__/
 
 .DS_Store
 Thumbs.db
+# per-user UI preferences (field image path)
+ui_prefs.json
