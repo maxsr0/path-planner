@@ -19,6 +19,23 @@ def cubic_hermite_1d_derivative(p0, p1, m0, m1, t):
     return (3 * a * math.pow(t, 2)) + (2 * b * t) + c
 
 
+def cubic_hermite_1d_second_derivative(p0, p1, m0, m1, t):
+    a = 2 * p0 - 2 * p1 + m0 + m1
+    b = -3 * p0 + 3 * p1 - 2 * m0 - m1
+    # 6at + 2b
+    return 6 * a * t + 2 * b
+
+
+def hermite_eval_2d(p0, p1, m0, m1, t):
+    """Return (position, first derivative, second derivative) at t, each as (x, y)."""
+    pos = cubic_hermite_2d(p0, p1, m0, m1, t)
+    d1 = (cubic_hermite_1d_derivative(p0[0], p1[0], m0[0], m1[0], t),
+          cubic_hermite_1d_derivative(p0[1], p1[1], m0[1], m1[1], t))
+    d2 = (cubic_hermite_1d_second_derivative(p0[0], p1[0], m0[0], m1[0], t),
+          cubic_hermite_1d_second_derivative(p0[1], p1[1], m0[1], m1[1], t))
+    return pos, d1, d2
+
+
 def cubic_hermite_2d(p0, p1, m0, m1, t):
     x = cubic_hermite_1d(p0[0], p1[0], m0[0], m1[0], t)
     y = cubic_hermite_1d(p0[1], p1[1], m0[1], m1[1], t)

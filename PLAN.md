@@ -65,6 +65,11 @@ Context: tank drive; the firmware is PRISM's own template (PID, LQR, Ramsete, po
 - Reversed segments for driving backwards (negative v and flipped heading).
 - Per-segment speed caps, stop points, and event markers such as "intake on at waypoint 3", exported as markers.
 
+## Status
+- Done: bugs 1–12, 14–19 and improvement A. The firmware `traj_loader.h`/`.cpp` were updated locally in the template and not committed.
+- Bug 13 was a false alarm. Catmull-Rom's `0.5·(next − prev)` has the same scale as the endpoint chord.
+- Found in the firmware for later: `TrajectoryFollower::get_reference()` compares `timestamp` (seconds) with `pros::millis()` (ms), and does a linear scan with no interpolation.
+
 ## Suggested order
 1. Bugs 1–4, plus tests (the export becomes usable).
 2. Bugs 5–10, plus the repo cleanup in 16–19.

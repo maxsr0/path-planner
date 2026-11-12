@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox
 from spline.hermite import sample_hermite_path
 from ui.waypoint import Waypoint
 from profiler.trajectory import generate_trajectory
+from profiler.config import RobotConfig
 from exporter.binary_exporter import export_trajectory
 from exporter.header_exporter import export_trajectory_header
 
@@ -19,6 +20,7 @@ class App:
         self.spline_line = None
         self.selected_waypoint = None
         self.is_dragging = False
+        self.config = RobotConfig()
 
     @staticmethod
     def check_distance(click_x, click_y, w):
@@ -147,7 +149,7 @@ class App:
     def _generate_trajectory(self):
         pts = [(w.x, w.y) for w in self.waypoints]
         tangents = [(w.dx, w.dy) for w in self.waypoints]
-        return generate_trajectory(pts, tangents, 20, 100, 20)
+        return generate_trajectory(pts, tangents, self.config)
 
     def on_export(self):
         if len(self.waypoints) < 2:

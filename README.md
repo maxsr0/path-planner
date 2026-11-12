@@ -12,33 +12,45 @@ An autonomous path planning tool for VEX robotics, built for the PRISM VURC team
 
 Waypoints are connected using **cubic Hermite splines**. Each segment is defined by two endpoints and their tangent vectors, giving C1-continuous paths where heading is smooth across waypoints. Interior tangents are computed automatically using the Catmull-Rom convention, but can be overridden manually per waypoint.
 
+### Sampling and curvature
+
+The spline is resampled at **equal arc-length spacing** (0.5 in by default), so point density doesn't depend on tangent length or segment size. At each sample, heading comes from the spline's first derivative, and **signed curvature** is computed analytically:
+
+```
+κ = (x′y″ − y′x″) / (x′² + y′²)^(3/2)      (positive = turning left)
+```
+
 ### Velocity profiling
 
-Once the path is sampled into discrete points, a curvature profile is computed using the **Menger curvature** formula:
+Each point gets a speed ceiling, which is the smallest of:
 
-```
-κ = 2 |AB × AC| / (|AB| · |BC| · |AC|)
-```
+- `v_max`
+- the centripetal limit `sqrt(a_lat_max / |κ|)`
+- the tank-drive outer-wheel limit `v_max / (1 + |κ|·W/2)` (when a track width `W` is set)
 
-A maximum-velocity ceiling is derived from curvature and the robot's maximum lateral acceleration, then a **bidirectional pass** enforces the kinematic constraints:
-
-- Forward pass: accelerate up to the curvature ceiling given `a_max`
-- Backward pass: decelerate to guarantee the robot can stop or slow in time
-
-This is the standard approach used in FRC and other mobile robotics competitions. Extremely simple and accurate.
+A **bidirectional pass** then enforces `a_max`. The forward pass accelerates up to the ceiling, and the backward pass guarantees the robot can slow or stop in time. Angular velocity is `ω = v·κ`. Robot constants live in `profiler/config.py::RobotConfig`.
 
 ### Export formats
 
-Two export options are available:
+Two export options are available. Each trajectory point is:
+
+| field | unit |
+|---|---|
+| `x`, `y` | in |
+| `theta` | rad, CCW from +x |
+| `velocity` | in/s |
+| `omega` | rad/s |
+| `curvature` | 1/in, signed |
+| `timestamp` | s |
 
 **`.bin` — compact binary (SD card)**
 
 ```
-[int32: point count]
-[float32 x, float32 y, float32 velocity, float32 timestamp] × N
+char[4] "PRTJ" | uint32 version (2) | uint32 point count
+[float32 x, y, theta, velocity, omega, curvature, timestamp] × N
 ```
 
-Little-endian, read directly into a `vector<TrajectoryPoint>` by `load_trajectory()` in the PRISM template.
+The file is little-endian. `load_trajectory()` in the PRISM template reads it and rejects files with the wrong magic or version.
 
 **`.hpp` — C++ header (embedded in firmware)**
 

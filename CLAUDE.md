@@ -19,24 +19,28 @@ No linter or build step is configured.
 
 ## Architecture
 
-The pipeline is pure functions over plain lists/tuples, orchestrated by `profiler/trajectory.py::generate_trajectory`:
+The pipeline is pure functions over plain lists/tuples, orchestrated by `profiler/trajectory.py::generate_trajectory(waypoints, tangents, config)`:
 
-1. `spline/hermite.py` — `sample_hermite_path(waypoints, tangents, num_points_per_segment)` samples cubic Hermite segments into `(x, y)` points.
-2. `spline/curvature.py` — `curvature_profile(path)` computes discrete Menger curvature per sample.
-3. `profiler/velocity_profiler.py` — `velocity_profile` caps speed at `min(v_max, sqrt(a_max/κ))`, then does a forward (accel) and backward (decel) pass; start and end speed are forced to 0. `compute_timestamps` integrates time from distance / average speed.
-4. Output is a list of `(x, y, v, t)` tuples consumed by `exporter/binary_exporter.py` and `exporter/header_exporter.py`.
+1. `spline/arclength.py` — `sample_path_by_distance` resamples the cubic Hermite spline (`spline/hermite.py`) at equal arc-length spacing and returns position plus first and second derivatives. `signed_curvature` is analytic (positive = left turn).
+2. `profiler/velocity_profiler.py` — the speed ceiling is `min(v_max, sqrt(a_lat/|κ|), v_max/(1+|κ|W/2))`, followed by forward (accel) and backward (decel) passes with `a_max`; start and end speed are 0. `compute_timestamps` uses `dt = 2d/(v0+v1)`.
+3. Output is a list of `TrajectoryPoint(x, y, theta, velocity, omega, curvature, timestamp)` namedtuples. That field order is the export contract.
 
-The same `a_max` is used for both lateral (curvature ceiling) and longitudinal acceleration.
+`profiler/config.py::RobotConfig` holds v_max, a_max, a_lat_max, track_width (0 disables the wheel limit) and spacing. `spline/curvature.py` (Menger) and `sample_hermite_path` (uniform t) are only used for the UI preview and in tests, not for export.
 
 UI layer:
 - `main.py` builds the tkinter window, side-panel entries (x, y, dx, dy), and buttons, then wires matplotlib canvas events to `ui/app.py::App`.
-- `App` owns the `Waypoint` list (`ui/waypoint.py`), handles click/drag/select, recomputes tangents, redraws, and calls the pipeline. Trajectory parameters are currently hardcoded in `App._generate_trajectory` (`20` points/segment, `v_max=100`, `a_max=20`).
-- Tangents: interior waypoints use Catmull-Rom (`0.5 * (next - prev)`) unless `manual_tangent` is set via the APPLY button; endpoint tangents always point toward their neighbor.
+- `App` owns the `Waypoint` list (`ui/waypoint.py`), handles click/drag/select, recomputes tangents, redraws, and calls the pipeline. Profile settings come from `App.config` (a `RobotConfig`, defaults only; not editable in the UI yet).
+- Tangents: interior waypoints use Catmull-Rom (`0.5 * (next - prev)`) unless `manual_tangent` is set via the APPLY button; endpoint tangents point toward their neighbor unless manual.
 
 ## Export format contracts
 
 These formats are read by robot firmware, so changes must stay in sync with the C++ side:
-- `.bin`: `int32` point count, then `float32 x, y, velocity, timestamp` per point.
-- `.bin` is written explicitly little-endian (`<i`, `<4f`) to match `traj_loader.cpp`.
-- `.hpp`: includes the firmware's `PRISM/auton/traj_loader.h` (firmware repo: `../../template/Prism Template`; `standalone=True` inlines the structs instead) and emits a `constexpr std::array<TrajectoryPoint, N>` whose name is the uppercased filename stem (e.g. `red_auton.hpp` → `RED_AUTON`), sanitized by `make_identifier`. Each element is `{ {x, y}, v, t }`.
-- Set `PRISM_FIRMWARE_INCLUDE` to the template's `include/` dir to have pytest compile exported headers against the real firmware types (needs g++/clang++).
+- `.bin`: little-endian `"PRTJ"` magic, `uint32` version (2), `uint32` count, then 7×`float32` per point in `TrajectoryPoint` order. Bump `VERSION` in `exporter/binary_exporter.py` and `TRAJ_VERSION` in firmware `traj_loader.cpp` together.
+- `.hpp`: includes the firmware's `PRISM/auton/traj_loader.h` (firmware repo: `../../template/Prism Template`; `standalone=True` inlines the structs instead) and emits a `constexpr std::array<TrajectoryPoint, N>` whose name is the uppercased filename stem (e.g. `red_auton.hpp` → `RED_AUTON`), sanitized by `make_identifier`. Each element is `{ {x, y}, theta, v, omega, curvature, t }`.
+- Set `PRISM_FIRMWARE_ROOT` to the template repo root to have pytest compile exported headers and the real `traj_loader.cpp` (needs g++/clang++):
+
+```bash
+PRISM_FIRMWARE_ROOT="../../template/Prism Template" python -m pytest
+```
+
+Do not commit or push the template repo without the user asking; edits there are left local.

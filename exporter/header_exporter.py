@@ -46,7 +46,7 @@ def export_trajectory_header(trajectory, filepath, array_name=None, standalone=F
             "#ifndef TRAJECTORY_POINT_DEFINED",
             "#define TRAJECTORY_POINT_DEFINED",
             "struct Point { float x; float y; };",
-            "struct TrajectoryPoint { Point pos; float velocity; float timestamp; };",
+            "struct TrajectoryPoint { Point pos; float theta; float velocity; float omega; float curvature; float timestamp; };",
             "#endif",
         ]
     else:
@@ -58,10 +58,11 @@ def export_trajectory_header(trajectory, filepath, array_name=None, standalone=F
     ]
 
     for i, pt in enumerate(trajectory):
-        x, y, v, t = pt
+        x, y, theta, v, omega, k, t = pt
         comma = "," if i < count - 1 else ""
-        # { {x, y}, velocity, timestamp } matches TrajectoryPoint { Point pos; float velocity; float timestamp; }
-        lines.append(f"    {{ {{ {x:.6f}f, {y:.6f}f }}, {v:.6f}f, {t:.6f}f }}{comma}")
+        # matches TrajectoryPoint { Point pos; theta; velocity; omega; curvature; timestamp; }
+        vals = ", ".join(f"{val:.6f}f" for val in (theta, v, omega, k, t))
+        lines.append(f"    {{ {{ {x:.6f}f, {y:.6f}f }}, {vals} }}{comma}")
 
     lines += [
         "}};",
