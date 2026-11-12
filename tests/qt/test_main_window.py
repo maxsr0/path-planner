@@ -283,3 +283,19 @@ def test_no_prompt_when_clean(win, tmp_path):
     ev = QCloseEvent()
     win.closeEvent(ev)
     assert ev.isAccepted()
+
+
+def test_cancelled_save_dialog_keeps_work(win):
+    win.ask_discard = lambda: "save"
+    win.ask_save_path = lambda kind: None   # user closed the save dialog
+    win.actions["new"].trigger()
+    assert len(win.editor.waypoints) == 3
+
+
+def test_broken_custom_field_image_shows_error(win, tmp_path):
+    bad = tmp_path / "broken.png"
+    bad.write_text("not an image")
+    win.ask_image_path = lambda: str(bad)
+    win.field_combo.setCurrentIndex(win.field_combo.count() - 1)
+    assert win.errors and "Could not load" in win.errors[-1][1]
+    assert win.field_view.image_item is None

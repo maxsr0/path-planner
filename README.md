@@ -72,7 +72,7 @@ The array name is derived from the filename (e.g. `red_auton.hpp` → `RED_AUTON
 
 ```
 path-planner/
-├── main.py                   # entry point, tkinter window and panel layout
+├── main.py                   # entry point: launches the Qt app maximized
 ├── fields/                   # built-in field images + fields.json (names, real sizes)
 ├── spline/
 │   ├── hermite.py            # cubic Hermite interpolation and derivatives
@@ -86,13 +86,17 @@ path-planner/
 │   ├── binary_exporter.py    # versioned little-endian .bin
 │   ├── header_exporter.py    # .hpp for firmware embed
 │   └── path_file.py          # editable .path.json projects
-├── ui/
-│   ├── app.py                # editing, undo/redo, files, settings, playback
-│   ├── velocity_view.py      # speed-colored path, speed strip, robot marker
-│   ├── fields.py             # field picker presets
-│   ├── field.py              # matplotlib figure setup
-│   └── waypoint.py           # waypoint data (heading tangent, reverse, speed cap)
-└── tests/
+├── planner/                  # editing model, no GUI code
+│   ├── editor.py             # Editor (waypoints, undo/redo, files, stats) + Playback
+│   ├── waypoint.py           # waypoint data (heading, reverse, speed cap)
+│   └── fields.py             # field presets + FieldLibrary (custom images, remembered choice)
+├── qt_ui/                    # PySide6 interface
+│   ├── main_window.py        # toolbar, sidebars, status bar, dialogs, playback
+│   ├── field_view.py         # the big interactive field
+│   ├── speed_plot.py         # speed vs time strip
+│   ├── panels.py             # waypoint list/editor, robot settings/stats
+│   └── theme.py              # light/dark themes, stylesheet, speed colors
+└── tests/                    # pytest; tests/qt runs the UI offscreen with pytest-qt
 ```
 
 ---
@@ -108,28 +112,47 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Dependencies: `numpy`, `matplotlib` (plus `pytest` for tests; run with `python -m pytest`)
+Dependencies: `numpy`, `PySide6` (Qt), `Pillow`; for tests, `pytest` and `pytest-qt` (run with `python -m pytest`).
 
 ---
 
 ## Usage
 
-- **Click** anywhere on the field to place a waypoint. The new waypoint is selected automatically.
-- **Drag** a waypoint to move it, and the spline updates live. Hold **Ctrl** to snap to whole inches.
-- **Select** a waypoint to edit its position and tangent in the right panel. A square **tangent handle** appears: drag it to bend the curve (grey = automatic tangent, teal = manual).
-- **Shift+click** near the path to insert a waypoint into that segment.
-- **Right-click** a waypoint, or press **Delete** with one selected, to remove it. **Esc** deselects.
-- **Ctrl+Z** / **Ctrl+Y** (or Ctrl+Shift+Z) undo and redo any edit.
-- **Apply** commits typed values. Changing dx/dy makes the tangent manual; **Auto Tan** returns it to automatic.
-- **New / Open / Save** (Ctrl+N / Ctrl+O / Ctrl+S, Ctrl+Shift+S = Save As) work with editable `.path.json` files. They hold the waypoints and tangents only; robot settings stay in `robot_config.json`, so one path can be exported for different robots. The title bar shows `*` when there are unsaved changes, and you're asked to save before New, Open or closing the window. Exports default to the path's name.
-- **Segment options** (the row under the tangent fields, applied with **Apply**) affect the segment *leaving* the selected waypoint:
-  - **reverse** drives it backwards. It's drawn dashed and shows as negative speed on the speed strip. Where the direction changes, the path makes a cusp and the robot stops there.
-  - **max v** caps the speed on that segment (blank = no cap).
-- **Field picker:** the **FIELD ▾** menu under the speed strip switches the background, like path.jerryio. Built-in choices are VURC and V5RC 2027 Override (normal and Skills), a plain V5RC perimeter, or **None (grid)**. The default is VURC 2027 Override. **+ Add image…** adds your own top-down image, cropped to the 144×144 in tiles. Your choice and custom images are remembered per user in `ui_prefs.json` (gitignored).
-- **Speed view:** the path is colored by planned speed, one blue ramp from dark (slow) to light (at `v_max`). The strip under the field plots speed over time in the same colors, so its y-axis is the color key. Hover over the strip to scrub a robot marker (a square sized to the track width) along the path, or press **Space** / **PLAY** to play it back in real time.
-- **Robot** panel: set max speed, max accel, lateral accel, track width and point spacing, then **Apply Settings**. Values are saved to `robot_config.json` and reloaded on startup. Below it you'll see the path's length, total time and peak speed.
-- **Export .bin** to save a binary trajectory for SD card loading
-- **Export .hpp** to generate a C++ header to embed the path directly in firmware
+The app opens maximized with the field large in the middle. **F11** toggles full screen, and **F1** (or **? Shortcuts** in the status bar) lists every shortcut.
+
+```
+ toolbar:  New Open Save | Undo Redo | Play Fit Speed graph | Field ▾ ......... Light theme | Export .bin .hpp
+┌──────────────┬──────────────────────────────────────┬──────────────┐
+│ WAYPOINTS    │                                      │ ROBOT        │
+│ list         │            the field                 │ settings     │
+│ SELECTED     │                                      │ PATH         │
+│ x y heading  ├──────────────────────────────────────┤ time, length │
+│ reverse, cap │  speed vs time                       │ peak speed   │
+└──────────────┴──────────────────────────────────────┴──────────────┘
+ status bar:  cursor x/y  ·  hint for whatever is under the mouse  ·  ? Shortcuts
+```
+
+**On the field**
+- **Click** to add a waypoint (it becomes selected). **Drag** a waypoint to move it; hold **Ctrl** to snap to whole inches.
+- The selected waypoint shows a square **heading handle**. Drag it to bend the curve (grey = automatic, accent color = manual).
+- **Shift+click** near the path to insert a waypoint into that segment. **Right-click** a waypoint (or press **Delete**) to remove it, and **Esc** deselects.
+- **Mouse wheel** zooms, **middle-drag** pans, and **F** fits the field back to the view. Waypoints are numbered, and dashed squares show the robot's footprint at the start and end.
+
+**Left sidebar:** the waypoint list (click to select). Below it is the selected waypoint's x, y and heading. Edits apply when you press Enter or leave the field, and each one is a single undo step. Changing the heading makes it manual; **Auto heading** returns it to automatic. The segment options apply to the segment *leaving* the selected waypoint:
+- **Drive next segment in reverse.** It's drawn dashed and shows as negative speed. Where the direction changes, the path makes a cusp and the robot stops there.
+- **Max speed, next segment** caps that segment (**none** = no cap).
+
+**Right sidebar:** robot settings (max speed, max accel, lateral accel, track width, point spacing). **Apply robot settings** saves them to `robot_config.json`. Underneath are the path's total time, length and peak speed.
+
+**Speed graph:** the path is colored by planned speed in one blue ramp, and the graph under the field uses the same colors, so its y axis is the color key. Hover over it to scrub the robot along the path, or press **Space** / **Play** for real-time playback. **Ctrl+G** hides it.
+
+**Toolbar**
+- **New / Open / Save** (Ctrl+N / Ctrl+O / Ctrl+S, Ctrl+Shift+S = Save As) work with editable `.path.json` files. Robot settings stay in `robot_config.json`, so one path can be exported for different robots. The title shows `*` for unsaved changes, and you're asked before anything is lost.
+- **Field ▾** switches the background, like path.jerryio: VURC/V5RC 2027 Override (normal and Skills), a V5RC perimeter, **None (grid)**, or **+ Add image…** for your own top-down image cropped to the 144×144 in tiles.
+- **Light theme / Dark theme** (Ctrl+T) switches the whole app, including the field chrome, path colors and graph.
+- **Export .bin** (Ctrl+E) / **Export .hpp** (Ctrl+Shift+E) write the trajectory for the robot.
+
+Your field and theme choices are remembered per user in `ui_prefs.json` (gitignored).
 
 ---
 
