@@ -18,3 +18,6 @@ __pycache__/
 Thumbs.db
 # per-user UI preferences (field image path)
 ui_prefs.json
+
+# old/alternate virtual environments
+.venv*/
