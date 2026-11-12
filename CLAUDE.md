@@ -4,40 +4,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-PRISM Path Planner: a tkinter + matplotlib desktop tool for VEX U robotics. Users place waypoints on a 144×144 inch field, the app fits a spline, generates a velocity-profiled trajectory, and exports it for the robot (`.bin` for SD card, `.hpp` for embedding in C++ firmware).
+PRISM Path Planner: a PySide6 (Qt) desktop tool for VEX U robotics. Users place waypoints on a 144×144 inch field, the app fits a spline, generates a velocity-profiled trajectory, and exports it for the robot (`.bin` for SD card, `.hpp` for embedding in C++ firmware).
 
 ## Commands
 
 ```bash
-pip install -r requirements.txt   # numpy>=1.26, matplotlib>=3.8, pytest
-python main.py                    # launch the GUI
-python -m pytest                  # run all tests (root conftest.py makes packages importable)
-python -m pytest tests/test_profiler.py::test_name   # single test
+pip install -r requirements.txt   # numpy, PySide6, Pillow, pytest, pytest-qt
+python main.py                    # launch the app (maximized; F11 = full screen)
+python -m pytest                  # all tests; Qt tests run offscreen (tests/qt/conftest.py sets QT_QPA_PLATFORM)
+python -m pytest tests/test_editor.py::test_drag_point_is_one_undo_step   # single test
 ```
 
-UI tests run headless: root `conftest.py` forces the Agg backend and provides the `make_app` fixture, which builds an `App` with fake entries and canvas, plus `Click`/`Key` fake events.
-
-No linter or build step is configured.
+No linter or build step is configured. **Write tests before code** for every change: write them, see them fail for the right reason, then implement.
 
 ## Architecture
 
-The pipeline is pure functions over plain lists/tuples, orchestrated by `profiler/trajectory.py::generate_trajectory(waypoints, tangents, config)`:
+Three layers, with no UI code below the top one:
 
-1. `spline/arclength.py` — `sample_path_by_distance` resamples the cubic Hermite spline (`spline/hermite.py`) at equal arc-length spacing and returns position plus first and second derivatives. `signed_curvature` is analytic (positive = left turn).
-2. `profiler/velocity_profiler.py` — the speed ceiling is `min(v_max, sqrt(a_lat/|κ|), v_max/(1+|κ|W/2))`, followed by forward (accel) and backward (decel) passes with `a_max`; start and end speed are 0. `compute_timestamps` uses `dt = 2d/(v0+v1)`.
-3. Output is a list of `TrajectoryPoint(x, y, theta, velocity, omega, curvature, timestamp)` namedtuples. That field order is the export contract.
+1. **Core pipeline** (pure functions), orchestrated by `profiler/trajectory.py::generate_trajectory(waypoints, tangents, config, reversed_segments, speed_caps)`:
+   - `spline/arclength.py`: samples each Hermite segment (`spline/hermite.py`) at equal arc-length spacing, so waypoints are exact samples, and computes analytic signed curvature (positive = left). `segment_args` negates headings on reversed segments, which makes a direction change a cusp.
+   - `profiler/velocity_profiler.py`: speed ceiling `min(v_max, sqrt(a_lat/|κ|), v_max/(1+|κ|W/2), segment cap)`, then forward/backward passes with `a_max`. v=0 at the ends and at direction changes. `dt = 2d/(v0+v1)`.
+   - Output: `TrajectoryPoint(x, y, theta, velocity, omega, curvature, timestamp)`. That field order is the export contract. Reversed points have negative velocity, robot-facing theta and robot-frame curvature (`omega = v·κ` always holds). `state_at` interpolates a pose at time t.
+   - `profiler/config.py::RobotConfig` (validated, JSON load/save) and `exporter/` (`.bin`, `.hpp`, `.path.json`).
+2. **`planner/`** (toolkit-free model; test it without a GUI):
+   - `editor.py::Editor` owns waypoints, selection, sign-aware auto headings (`compute_tangents`), hit testing (pass `radius` in inches), drag (`begin_drag`/`drag_to`/`end_drag`), insert/delete, `update_waypoint` (several fields in one undo step), undo/redo, robot config, the cached `trajectory`, `stats()`, dirty tracking and `new`/`load`/`save`.
+     - Every edit pushes history before mutating; a drag records one snapshot on its first move.
+     - Listeners registered with `subscribe(fn)` get `'path' | 'selection' | 'config' | 'file'`.
+     - `Editor` never opens dialogs; it raises `ValueError`/`OSError`.
+   - `Playback` is the real-time clock.
+   - `waypoint.py`: `dx/dy` is the robot *heading*. `reversed` and `v_cap` apply to the segment leaving the waypoint.
+   - `fields.py`: built-in field renders from `fields/fields.json` (`size_mm` 3690 includes the wall; centered via `FieldPreset.extent`). `FieldLibrary` handles custom images and the remembered choice in `ui_prefs.json` (gitignored, per user).
+3. **`qt_ui/`** (PySide6):
+   - `main_window.py` holds the toolbar, status bar, playback `QTimer` and file prompts. Dialogs go through `ask_discard`/`ask_save_path`/`ask_open_path`/`ask_image_path`/`show_error`, which tests replace. Delete/Space/F/Esc are shortcuts on the field view only, so typing in the sidebars isn't hijacked.
+   - `field_view.py` is a `QGraphicsView` in inches with scene y flipped (`to_scene`/`to_field`).
+     - Waypoints and handles ignore the view transform, so they stay the same pixel size at any zoom.
+     - The path is merged into same-color runs over a casing line, and the scene uses `NoIndex`. That's what keeps dragging at about 16 ms per frame.
+   - `speed_plot.py` is a `QPainter` speed-vs-time strip. Compute `v_range()` once per paint: a per-point rescan was O(n²), and a call-count test guards it.
+   - `panels.py` has the left waypoint list and editor (spin boxes commit on Enter or focus-out, one undo step each, no-op if unchanged) and the right robot settings and path stats.
+   - `theme.py` defines the dark/light tokens, the stylesheet and the per-theme one-hue speed ramp (dark: lighter = faster; light: darker = faster), quantized to 32 steps (`SPEED_STEPS`) and cached. The choice persists in `ui_prefs.json`.
 
-`profiler/config.py::RobotConfig` holds v_max, a_max, a_lat_max, track_width (0 disables the wheel limit) and spacing. `spline/curvature.py` (Menger) and `sample_hermite_path` (uniform t) are only used for the UI preview and in tests, not for export.
-
-UI layer:
-- `main.py` builds the tkinter window, side-panel entries (x, y, dx, dy), and buttons, then wires matplotlib canvas events to `ui/app.py::App`.
-- `App` owns the `Waypoint` list (`ui/waypoint.py`), handles click/drag/select, recomputes tangents, redraws, and calls the pipeline. Editing: right-click/Delete removes, shift+click inserts into the nearest segment (`_nearest_segment`), ctrl snaps (`_point`), and the selected waypoint's handle at `p + m/3` (`HANDLE_SCALE`) is drag-editable. Modifier keys are read from the mpl event's `key` string (`_modifiers`).
-- Headings and reversing: `Waypoint.dx/dy` is the robot *heading* tangent. `Waypoint.reversed` and `v_cap` apply to the segment leaving that waypoint. `spline/arclength.py::segment_args` negates the headings on reversed segments to get path derivatives, so a direction change produces a cusp. `App.compute_tangents` builds sign-aware auto headings. `generate_trajectory(..., reversed_segments, speed_caps)` samples each segment separately (waypoints are exact samples), forces v=0 at direction changes, and exports negative velocity, robot-facing theta and robot-frame curvature for reversed points (Ramsete convention).
-- Field picker: `ui/fields.py` lists built-ins from `fields/fields.json` (name, file, `size_mm`; the renders are 3690 mm, which includes the wall) and centers them on the 144 in field via `FieldPreset.extent`. Custom images cover exactly 0–144. `App.select_field`/`add_custom_field`/`remove_custom_field` persist `field` and `custom_fields` in `ui_prefs.json`. Images are resized to `FIELD_IMAGE_PX` (640) because full-size 2000 px renders made every redraw about 140 ms. Tests get no field images unless they pass `fields_dir=FIELDS_DIR` to `make_app`.
-- Speed view: `ui/velocity_view.py::VelocityView` draws on the field axes plus a second `profile_ax` (`create_field_figure()` returns `fig, ax, profile_ax`). `draw_all` computes `App.trajectory` once per redraw, and the view, stats and playback all reuse it. Path and profile are `LineCollection`s on a one-hue blue ramp normalized to `v_max`. `profiler/trajectory.py::state_at` interpolates the robot pose for hover scrubbing and playback (`toggle_play`/`play_tick`, driven by `root.after`). Clicks outside the field axes are ignored.
-- Path files: `exporter/path_file.py` (`save_path`/`load_path`, `{"format": "prism-path", "version": 1, "waypoints": [...]}`). `App.is_dirty()` compares the current waypoint snapshot (ignoring selection) with `_saved_data`, so undoing back to the saved state counts as clean. `confirm_discard()` guards New, Open and window close (`on_quit`).
-- Undo/redo: every edit calls `push_history()` *before* mutating, which stores a `_snapshot()` (waypoint tuples + selected index). A drag records one snapshot on its first movement, so a plain click adds no history. New edit paths must call `push_history()` too. Profile settings come from `App.config`, edited in the ROBOT panel (`App.SETTINGS_FIELDS`) and persisted to `robot_config.json` next to `main.py` via `load_config`/`save_config`. A missing file means defaults; a bad file falls back to defaults with a warning. The panel also shows path length, time and peak speed (`update_stats`, recomputed on every redraw).
-- Tangents: interior waypoints use Catmull-Rom (`0.5 * (next - prev)`) unless `manual_tangent` is set via the APPLY button; endpoint tangents point toward their neighbor unless manual.
+Testing notes: `tests/qt/test_main_window.py::dispose()` really destroys windows (`shiboken6.delete`). Leaked or still-open windows steal later tests' mouse events and slow them down. Offscreen widgets only paint after `waitExposed` or `grab()`.
 
 ## Export format contracts
 

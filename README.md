@@ -1,138 +1,174 @@
 # PRISM Path Planner
 
-An autonomous path planning tool for VEX robotics, built for the PRISM VURC team. Place waypoints on a 144×144 inch field, tune tangents, and export a time-stamped trajectory binary ready to load on a robot.
+A desktop path planner for VEX robotics, built for the PRISM VURC team. Draw a path on the real game field, and the planner turns it into a time-stamped, velocity-profiled trajectory (position, heading, speed and turn rate at every point) ready for a Ramsete-style follower on the robot.
 
-![field screenshot placeholder](docs/img.png)
+![PRISM Path Planner, dark theme](docs/img.png)
 
----
+<sub>Light theme: [docs/light.png](docs/light.png)</sub>
+
+## Features
+
+- **The real field, full screen.** Choose VURC or V5RC 2027 *Override* (match or Skills), a plain perimeter, a grid, or your own image. Zoom and pan for precise placement.
+- **Direct editing.** Click to add waypoints, drag to move them, drag the square handle to bend the curve, shift+click to insert, and right-click to delete. Full undo/redo.
+- **Driving in reverse and speed caps, per segment.** Reversed segments export negative velocity, and the robot stops where it changes direction.
+- **Speed you can see.** The path is colored by planned speed, and a speed-vs-time graph sits underneath. Hover to scrub a robot-sized marker along the path, or play it back in real time.
+- **Live numbers:** total time, path length and peak speed update as you edit.
+- **Firmware-ready exports:** a `.bin` for the SD card or a `.hpp` to compile into the robot program.
+- **Light and dark themes**, and editable `.path.json` files you can save and reopen.
+
+## Setup
+
+Requires **Python 3.10 or newer** (tested on 3.14). PySide6 and NumPy have no builds for older versions, so on Python 3.8 or 3.9 `pip install` fails with "No matching distribution found".
+
+```bash
+git clone https://github.com/maxsr0/path-planner
+cd path-planner
+py -3.14 -m venv .venv          # Windows; elsewhere: python3 -m venv .venv
+.venv\Scripts\activate          # Windows; elsewhere: source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+The app opens maximized. **F11** toggles full screen, and **F1** (or **? Shortcuts** in the bottom-right) lists every shortcut.
+
+**First thing to do:** enter your robot's numbers in the **Robot** panel and click **Apply robot settings**. The defaults (100 in/s, 20 in/s², track width off) are placeholders. With the track width set, the planner keeps the outer wheel under max speed in turns.
+
+## Using the planner
+
+```
+ New Open Save | Undo Redo | Play Fit Speed graph | Field ▾             Light theme | Export .bin  Export .hpp
+┌───────────────┬───────────────────────────────────────────┬────────────────┐
+│ WAYPOINTS     │                                           │ ROBOT          │
+│  1 (18, 22)   │                                           │  max speed     │
+│  2 (52, 64)   │               the field                   │  max accel …   │
+│ SELECTED      │                                           │ PATH           │
+│  x  y         ├───────────────────────────────────────────┤  total time    │
+│  heading      │  speed vs time                            │  length        │
+│  reverse, cap │                                           │  peak speed    │
+└───────────────┴───────────────────────────────────────────┴────────────────┘
+ cursor x / y   hint for whatever is under the mouse                ? Shortcuts
+```
+
+### On the field
+
+| Do this | To |
+|---|---|
+| Click empty field | Add a waypoint at the end of the path (it becomes selected) |
+| Drag a waypoint | Move it. Hold **Ctrl** to snap to whole inches |
+| Drag the square handle | Set the heading by hand (grey = automatic, accent color = manual) |
+| **Shift**+click near the path | Insert a waypoint into that segment |
+| Right-click a waypoint, or **Delete** | Remove it. **Esc** deselects |
+| Mouse wheel / middle-drag / **F** | Zoom / pan / fit the field |
+
+Waypoints are numbered on the field and in the list. Dashed squares show the robot's footprint (sized to the track width) at the start and end.
+
+### Left sidebar: waypoints
+
+Click a row to select a waypoint. Its **x**, **y** and **heading** apply when you press Enter or click away, and each change is one undo step. Changing the heading makes it manual; **Auto heading** puts it back to automatic.
+
+Two options apply to the segment *leaving* the selected waypoint:
+
+- **Drive next segment in reverse.** The robot backs along that segment. It's drawn dashed on the field and shows as negative speed on the graph. Where the direction changes, the path forms a cusp and the robot comes to a stop.
+- **Max speed, next segment.** A speed cap for that segment only (**none** = no cap).
+
+### Right sidebar: robot and path
+
+**Robot**: max speed, max acceleration, lateral (turning) acceleration, track width and point spacing. **Apply robot settings** saves them to `robot_config.json`, which is loaded on every start. **Path**: total time, length and peak speed of the current path.
+
+### Speed graph and playback
+
+The path and the graph share one blue color scale for speed, so the graph's y axis is the key for the path colors. Hover over the graph to move the robot marker to that moment, or press **Space** (or **Play**) to watch it drive in real time. **Ctrl+G** hides the graph.
+
+### Toolbar
+
+- **New / Open / Save** (Ctrl+N / Ctrl+O / Ctrl+S; Ctrl+Shift+S = Save As) work with `.path.json` files. These store waypoints only, so the same path can be exported with different robot settings. The title shows `*` while there are unsaved changes, and you're asked before anything is lost.
+- **Undo / Redo** (Ctrl+Z / Ctrl+Y) cover every edit.
+- **Field ▾** offers VURC 2027 Override, VURC 2027 Override (Skills), V5RC 2027 Override, V5RC 2027 Override (Skills), V5RC Field Perimeter, **None (grid)**, or **+ Add image…** for your own top-down image cropped to the 144×144 in tiles.
+- **Light theme / Dark theme** (Ctrl+T) switches the whole app.
+- **Export .bin** (Ctrl+E) and **Export .hpp** (Ctrl+Shift+E) write the trajectory for the robot (see below). File names default to the path's name.
+
+Your field and theme choices are remembered per user in `ui_prefs.json`.
+
+## Using a path on the robot
+
+Every exported point is one `TrajectoryPoint`:
+
+| field | unit / meaning |
+|---|---|
+| `pos.x`, `pos.y` | in |
+| `theta` | rad, counter-clockwise from +x: the direction the robot **faces** (path direction + π when reversing) |
+| `velocity` | in/s, **negative while reversing** |
+| `omega` | rad/s, turn rate (`velocity × curvature`) |
+| `curvature` | 1/in, in the robot's frame (positive = turning left) |
+| `timestamp` | s since the start of the path |
+
+**`.bin` (load from the SD card)**
+
+```cpp
+#include "PRISM/auton/traj_loader.h"
+#include "PRISM/auton/traj_follower.h"
+
+std::vector<TrajectoryPoint> path = load_trajectory("/usd/red_auton.bin");  // empty if missing or invalid
+TrajectoryFollower follower;
+follower.start_following(path);
+```
+
+File layout, little-endian: `"PRTJ"`, `uint32` version (2), `uint32` point count, then 7 × `float32` per point in the order above. `load_trajectory` returns an empty vector for a file with the wrong magic, a wrong version, or a truncated file.
+
+**`.hpp` (compiled into the program, no SD card)**
+
+```cpp
+#include "paths/red_auton.hpp"   // defines RED_AUTON
+
+follower.start_following(std::vector<TrajectoryPoint>(RED_AUTON.begin(), RED_AUTON.end()));
+```
+
+The header includes `PRISM/auton/traj_loader.h` for the `TrajectoryPoint` type and defines a `constexpr std::array<TrajectoryPoint, N>`. The array name comes from the file name: `red_auton.hpp` becomes `RED_AUTON`, other characters become `_`, and names starting with a digit get a `PATH_` prefix.
+
+> **Firmware compatibility.** These formats need the version-2 `traj_loader.h` / `traj_loader.cpp`, with the `theta`, `omega` and `curvature` fields, in the PRISM template. The follower must also handle negative velocity on reversed segments. For use outside the PRISM template, `export_trajectory_header(..., standalone=True)` writes a header that defines its own `Point`/`TrajectoryPoint`.
 
 ## How it works
 
-### Path generation
+1. **Spline.** Waypoints are joined by cubic Hermite segments using each waypoint's heading as the tangent, so heading is smooth through every waypoint. Automatic headings follow the Catmull-Rom rule (`½·(next − previous)`), flipped on reversed segments. That flip is what turns a direction change into a cusp.
+2. **Sampling.** Each segment is resampled at equal distance along the curve (0.5 in by default), so waypoints are exact samples and point density doesn't depend on how long the handles are. Heading and signed curvature come from the spline's derivatives:
 
-Waypoints are connected using **cubic Hermite splines**. Each segment is defined by two endpoints and their tangent vectors, giving C1-continuous paths where heading is smooth across waypoints. Interior tangents are computed automatically using the Catmull-Rom convention, but can be overridden manually per waypoint.
-
-### Sampling and curvature
-
-The spline is resampled at **equal arc-length spacing** (0.5 in by default), so point density doesn't depend on tangent length or segment size. At each sample, heading comes from the spline's first derivative, and **signed curvature** is computed analytically:
-
-```
-κ = (x′y″ − y′x″) / (x′² + y′²)^(3/2)      (positive = turning left)
-```
-
-### Velocity profiling
-
-Each point gets a speed ceiling, which is the smallest of:
-
-- `v_max`
-- the centripetal limit `sqrt(a_lat_max / |κ|)`
-- the tank-drive outer-wheel limit `v_max / (1 + |κ|·W/2)` (when a track width `W` is set)
-
-A **bidirectional pass** then enforces `a_max`. The forward pass accelerates up to the ceiling, and the backward pass guarantees the robot can slow or stop in time. Angular velocity is `ω = v·κ`. Robot constants live in `profiler/config.py::RobotConfig`.
-
-### Export formats
-
-Two export options are available. Each trajectory point is:
-
-| field | unit |
-|---|---|
-| `x`, `y` | in |
-| `theta` | rad, CCW from +x; the direction the robot faces (path direction + π when reversed) |
-| `velocity` | in/s, negative when driving backwards |
-| `omega` | rad/s |
-| `curvature` | 1/in, signed, in the robot's frame, so `omega = velocity × curvature` always holds |
-| `timestamp` | s |
-
-**`.bin` — compact binary (SD card)**
-
-```
-char[4] "PRTJ" | uint32 version (2) | uint32 point count
-[float32 x, y, theta, velocity, omega, curvature, timestamp] × N
-```
-
-The file is little-endian. `load_trajectory()` in the PRISM template reads it and rejects files with the wrong magic or version.
-
-**`.hpp` — C++ header (embedded in firmware)**
-
-Generates a `constexpr std::array<TrajectoryPoint, N>` that you include directly in your robot project. No SD card required as the path is baked into the binary. The header includes `PRISM/auton/traj_loader.h` for the `TrajectoryPoint` type. For use outside the PRISM template, `export_trajectory_header(..., standalone=True)` defines `Point`/`TrajectoryPoint` inline instead.
-
-```cpp
-#include "paths/my_path.hpp"
-
-chassis.follow_trajectory(
-    std::vector<TrajectoryPoint>(MY_PATH.begin(), MY_PATH.end())
-);
-```
-
-The array name is derived from the filename (e.g. `red_auton.hpp` → `RED_AUTON`); invalid characters become `_`, and names starting with a digit get a `PATH_` prefix.
-
----
+   ```
+   κ = (x′y″ − y′x″) / (x′² + y′²)^(3/2)      (positive = turning left)
+   ```
+3. **Speed limits.** Each point's top speed is the smallest of: max speed; the turning limit `sqrt(a_lat / |κ|)`; the outer-wheel limit `v_max / (1 + |κ|·W/2)` for track width `W`; and the segment's cap. Speed is zero at the start, the end and every direction change.
+4. **Acceleration.** A forward pass accelerates as fast as `a_max` allows up to those limits, and a backward pass makes sure the robot can always slow down in time.
+5. **Timing.** The time between points assumes constant acceleration (`dt = 2d / (v₀ + v₁)`). Turn rate is `ω = v·κ`.
 
 ## Project structure
 
 ```
 path-planner/
-├── main.py                   # entry point, tkinter window and panel layout
-├── fields/                   # built-in field images + fields.json (names, real sizes)
-├── spline/
-│   ├── hermite.py            # cubic Hermite interpolation and derivatives
-│   ├── arclength.py          # equal arc-length sampling per segment, signed curvature
-│   └── curvature.py          # Menger curvature (tests only)
-├── profiler/
-│   ├── config.py             # RobotConfig (limits, track width, spacing) + JSON load/save
-│   ├── velocity_profiler.py  # speed ceilings and the forward/backward pass
-│   └── trajectory.py         # TrajectoryPoint, generate_trajectory, state_at
-├── exporter/
-│   ├── binary_exporter.py    # versioned little-endian .bin
-│   ├── header_exporter.py    # .hpp for firmware embed
-│   └── path_file.py          # editable .path.json projects
-├── ui/
-│   ├── app.py                # editing, undo/redo, files, settings, playback
-│   ├── velocity_view.py      # speed-colored path, speed strip, robot marker
-│   ├── fields.py             # field picker presets
-│   ├── field.py              # matplotlib figure setup
-│   └── waypoint.py           # waypoint data (heading tangent, reverse, speed cap)
-└── tests/
+├── main.py              # starts the app
+├── fields/              # built-in field images + fields.json (names, real-world sizes)
+├── spline/              # Hermite math, arc-length sampling, curvature
+├── profiler/            # robot config, speed limits + accel passes, TrajectoryPoint
+├── exporter/            # .bin, .hpp and .path.json read/write
+├── planner/             # the editing model: waypoints, undo/redo, files, stats (no GUI code)
+├── qt_ui/               # the PySide6 window, field view, speed graph, sidebars, themes
+├── tests/               # pytest; tests/qt drives the real UI offscreen
+└── docs/                # screenshots
 ```
 
----
-
-## Setup
-
-Python 3.10+ (tested on 3.14 with NumPy 2.x).
+## Development
 
 ```bash
-git clone https://github.com/maxsr0/path-planner
-cd path-planner
-pip install -r requirements.txt
-python main.py
+python -m pytest                                        # all tests (the Qt ones run offscreen)
+python -m pytest tests/test_editor.py -k undo           # a subset
 ```
 
-Dependencies: `numpy`, `matplotlib` (plus `pytest` for tests; run with `python -m pytest`)
+Set `PRISM_FIRMWARE_ROOT` to the PRISM template checkout to also compile the exported headers and the template's `traj_loader.cpp`, and load a planner-exported `.bin` with it (needs g++ or clang++):
 
----
+```bash
+PRISM_FIRMWARE_ROOT="../../template/Prism Template" python -m pytest
+```
 
-## Usage
+New features are written test-first. See `CLAUDE.md` for the architecture notes.
 
-- **Click** anywhere on the field to place a waypoint. The new waypoint is selected automatically.
-- **Drag** a waypoint to move it, and the spline updates live. Hold **Ctrl** to snap to whole inches.
-- **Select** a waypoint to edit its position and tangent in the right panel. A square **tangent handle** appears: drag it to bend the curve (grey = automatic tangent, teal = manual).
-- **Shift+click** near the path to insert a waypoint into that segment.
-- **Right-click** a waypoint, or press **Delete** with one selected, to remove it. **Esc** deselects.
-- **Ctrl+Z** / **Ctrl+Y** (or Ctrl+Shift+Z) undo and redo any edit.
-- **Apply** commits typed values. Changing dx/dy makes the tangent manual; **Auto Tan** returns it to automatic.
-- **New / Open / Save** (Ctrl+N / Ctrl+O / Ctrl+S, Ctrl+Shift+S = Save As) work with editable `.path.json` files. They hold the waypoints and tangents only; robot settings stay in `robot_config.json`, so one path can be exported for different robots. The title bar shows `*` when there are unsaved changes, and you're asked to save before New, Open or closing the window. Exports default to the path's name.
-- **Segment options** (the row under the tangent fields, applied with **Apply**) affect the segment *leaving* the selected waypoint:
-  - **reverse** drives it backwards. It's drawn dashed and shows as negative speed on the speed strip. Where the direction changes, the path makes a cusp and the robot stops there.
-  - **max v** caps the speed on that segment (blank = no cap).
-- **Field picker:** the **FIELD ▾** menu under the speed strip switches the background, like path.jerryio. Built-in choices are VURC and V5RC 2027 Override (normal and Skills), a plain V5RC perimeter, or **None (grid)**. The default is VURC 2027 Override. **+ Add image…** adds your own top-down image, cropped to the 144×144 in tiles. Your choice and custom images are remembered per user in `ui_prefs.json` (gitignored).
-- **Speed view:** the path is colored by planned speed, one blue ramp from dark (slow) to light (at `v_max`). The strip under the field plots speed over time in the same colors, so its y-axis is the color key. Hover over the strip to scrub a robot marker (a square sized to the track width) along the path, or press **Space** / **PLAY** to play it back in real time.
-- **Robot** panel: set max speed, max accel, lateral accel, track width and point spacing, then **Apply Settings**. Values are saved to `robot_config.json` and reloaded on startup. Below it you'll see the path's length, total time and peak speed.
-- **Export .bin** to save a binary trajectory for SD card loading
-- **Export .hpp** to generate a C++ header to embed the path directly in firmware
+## Credits
 
----
-
-## Built for
-
-[PRISM](https://prismrobotics.org) - VEX U Robotics Competition team.
+Built for [PRISM](https://prismrobotics.org), a VEX U Robotics Competition team. The built-in field images come from the [path.jerryio](https://github.com/Jerrylum/path.jerryio) project.

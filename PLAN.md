@@ -72,6 +72,12 @@ Context: tank drive; the firmware is PRISM's own template (PID, LQR, Ramsete, po
 - Bug 13 was a false alarm. Catmull-Rom's `0.5·(next − prev)` has the same scale as the endpoint chord.
 - Found in the firmware for later: `TrajectoryFollower::get_reference()` compares `timestamp` (seconds) with `pros::millis()` (ms), and does a linear scan with no interpolation.
 
+## UI redesign (branch `ui-redesign`)
+- Replaced the Tk + matplotlib UI with PySide6. Toolkit-free `planner.Editor` model; `qt_ui/` holds the main window, field view, speed plot, panels and themes.
+- Full-screen layout: toolbar, waypoint sidebar, big centered field, robot sidebar, speed strip, status bar.
+- Light/dark themes. Zoom/pan, numbered waypoints, start/end footprints, a shortcuts dialog.
+- Built tests-first throughout.
+
 ## Suggested order
 1. Bugs 1–4, plus tests (the export becomes usable).
 2. Bugs 5–10, plus the repo cleanup in 16–19.
