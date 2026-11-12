@@ -19,6 +19,11 @@ def draw_field(ax):
 
 
 def create_field_figure():
-    fig, ax = plt.subplots()
+    """Return (fig, field_ax, profile_ax): the field on top, a speed-vs-time strip below."""
+    fig = plt.figure()
+    fig.patch.set_facecolor('#111')
+    gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.3)
+    ax = fig.add_subplot(gs[0])
+    profile_ax = fig.add_subplot(gs[1])
     draw_field(ax)
-    return fig, ax
+    return fig, ax, profile_ax

@@ -1,0 +1,10 @@
+{
+  "_source": "Top-down field renders from the path.jerryio project (github.com/Jerrylum/path.jerryio, public/precache and public/static). size_mm is the real-world width/height the image covers, including the perimeter wall.",
+  "fields": [
+    {"name": "VURC 2027 - Override", "file": "VURC-Override-H2H-TopDownHighlighted-TileColor66_71.png", "size_mm": 3690},
+    {"name": "VURC 2027 - Override (Skills)", "file": "VURC-Override-Skills-TopDownHighlighted-TileColor66_71.png", "size_mm": 3690},
+    {"name": "V5RC 2027 - Override", "file": "V5RC-Override-H2H-TopDownHighlighted-TileColor66_71.png", "size_mm": 3690},
+    {"name": "V5RC 2027 - Override (Skills)", "file": "V5RC-Override-Skills-TopDownHighlighted-TileColor66_71.png", "size_mm": 3690},
+    {"name": "V5RC Field Perimeter", "file": "V5RC-FieldPerimeter-12ft12ft-TopDown-TileColor66_71.png", "size_mm": 3690}
+  ]
+}
